@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TxE</string>
+    <string name="accessibility_service_description">Text Expander - Tự động thay thế text viết tắt</string>
+    <string name="enable_accessibility_service">Enable Accessibility Service</string>
+    <string name="service_status">Service Status: %1$s</string>
+    <string name="service_enabled">Enabled</string>
+    <string name="service_disabled">Disabled</string>
+</resources>
