@@ -46,14 +46,36 @@ class MyAccessibilityService : AccessibilityService() {
                     Log.w(TAG, "Event text is null or empty")
                     return
                 }
-                
+
                 Log.d(TAG, "Processing text: $text")
-                // Check if the text matches any of our expansions
+
+                // Check for special commands first
+                when {
+                    text == "/thoitiet" -> {
+                        handleSpecialCommand("/thoitiet")
+                        return
+                    }
+                    text.startsWith("/tygia") -> {
+                        handleSpecialCommand(text)
+                        return
+                    }
+                    text == "/amlich" -> {
+                        handleSpecialCommand("/amlich")
+                        return
+                    }
+                    text.startsWith("/phatnguoi") -> {
+                        handleSpecialCommand(text)
+                        return
+                    }
+                }
+
+                // Check for text expansions
                 textExpansions.forEach { (shortcut, expansion) ->
-                    if (text.endsWith(shortcut)) {
+                    val trigger = "$shortcut " // Chuỗi cần kiểm tra (shortcut + dấu cách)
+                    if (text.endsWith(trigger)) {
                         Log.d(TAG, "Found matching shortcut: $shortcut -> $expansion")
                         // Replace the shortcut with the expansion
-                        val newText = text.substring(0, text.length - shortcut.length) + expansion
+                        val newText = text.dropLast(trigger.length) + expansion
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
                         })

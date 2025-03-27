@@ -25,8 +25,8 @@ project("txe")
 # for GameActivity/NativeActivity derived applications, the same library name must be
 # used in the AndroidManifest.xml file.
 add_library(txe SHARED
-    # List C/C++ source files with relative paths to this CMakeLists.txt.
-    txe.cpp)
+        # List C/C++ source files with relative paths to this CMakeLists.txt.
+        txe.cpp)
 
 # Find the Android log library
 find_library(log-lib log)

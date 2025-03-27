@@ -51,43 +51,41 @@ class CommandService : Service() {
         Log.d(TAG, "Processing command: $command")
         serviceScope.launch {
             try {
-                when {
-                    command == "/thoitiet" -> {
-                        Log.d(TAG, "Processing weather command")
-                        val weatherInfo = apiService?.getWeatherInfo() ?: "Lỗi khởi tạo service"
-                        showToast(weatherInfo)
-                    }
+                val result = when {
+                    command == "/thoitiet" -> apiService?.getWeatherInfo() ?: "Lỗi khởi tạo service"
                     command.startsWith("/tygia") -> {
                         Log.d(TAG, "Processing exchange rate command")
                         val parts = command.split(" ")
-                        val currencyCode = if (parts.size > 1) parts[1] else ""
-                        val exchangeRateInfo = apiService?.getExchangeRate(currencyCode) ?: "Lỗi khởi tạo service"
-                        showToast(exchangeRateInfo)
+                        Log.d(TAG, "Command parts: $parts")
+                        val currencyCode = if (parts.size > 1) parts[1].trim() else ""
+                        Log.d(TAG, "Extracted currencyCode: '$currencyCode'")
+                        val exchangeRateInfo = apiService?.getExchangeRate(currencyCode)
+                        Log.d(TAG, "Exchange rate result: $exchangeRateInfo")
+                        exchangeRateInfo ?: "Lỗi khởi tạo service hoặc không lấy được tỷ giá"
                     }
-                    command == "/amlich" -> {
-                        Log.d(TAG, "Processing lunar date command")
-                        val lunarInfo = apiService?.getLunarDate() ?: "Lỗi khởi tạo service"
-                        showToast(lunarInfo)
-                    }
+                    command == "/amlich" -> apiService?.getLunarDate() ?: "Lỗi khởi tạo service"
                     command.startsWith("/phatnguoi") -> {
-                        Log.d(TAG, "Processing traffic violations command")
                         val parts = command.split(" ")
                         if (parts.size > 1) {
-                            val plateNumber = parts[1]
-                            val violationsInfo = apiService?.getTrafficViolations(plateNumber) ?: "Lỗi khởi tạo service"
-                            showToast(violationsInfo)
+                            val plateNumber = parts[1].trim()
+                            apiService?.getTrafficViolations(plateNumber) ?: "Lỗi khởi tạo service"
                         } else {
-                            showToast("Vui lòng nhập biển số xe. Ví dụ: /phatnguoi 30A-12345")
+                            "Vui lòng nhập biển số xe. Ví dụ: /phatnguoi 30A-12345"
                         }
                     }
-                    else -> {
-                        Log.w(TAG, "Unsupported command: $command")
-                        showToast("Lệnh không được hỗ trợ: $command")
-                    }
+                    else -> "Lệnh không được hỗ trợ: $command"
                 }
+                Log.d(TAG, "Command result: $result")
+                val intent = Intent("COMMAND_RESULT").apply {
+                    putExtra("command_result", result)
+                }
+                sendBroadcast(intent)
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing command: $command", e)
-                showToast("Lỗi xử lý lệnh: ${e.message}")
+                val intent = Intent("COMMAND_RESULT").apply {
+                    putExtra("command_result", "Lỗi xử lý lệnh: ${e.message}")
+                }
+                sendBroadcast(intent)
             }
         }
     }

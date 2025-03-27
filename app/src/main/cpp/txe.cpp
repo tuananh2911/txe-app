@@ -10,10 +10,10 @@
 
 // Example text expansion map
 static std::map<std::string, std::string> textExpansions = {
-    {"brb", "be right back"},
-    {"lol", "laughing out loud"},
-    {"omw", "on my way"},
-    {"ttyl", "talk to you later"}
+        {"brb", "be right back"},
+        {"lol", "laughing out loud"},
+        {"omw", "on my way"},
+        {"ttyl", "talk to you later"}
 };
 
 extern "C"
