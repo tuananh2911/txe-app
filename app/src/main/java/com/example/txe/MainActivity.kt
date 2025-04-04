@@ -1,96 +1,109 @@
 package com.example.txe
 
-import android.app.Activity
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
-import android.widget.Button
-import android.widget.Toast
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import com.example.txe.ui.screens.MainScreen
+import com.example.txe.ui.theme.TxETheme
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import com.google.api.services.drive.DriveScopes
+import com.google.api.services.sheets.v4.SheetsScopes
 
-class MainActivity : AppCompatActivity() {
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            if (Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "Đã cấp quyền hiển thị trên màn hình", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Cần quyền hiển thị trên màn hình để hoạt động", Toast.LENGTH_LONG).show()
-            }
+class MainActivity : ComponentActivity() {
+    private val TAG = "MainActivity"
+    private val viewModel: MainViewModel by viewModels()
+    private lateinit var googleSignInClient: GoogleSignInClient
+
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            Log.d(TAG, "Permissions granted, retrying sync")
+            viewModel.syncFromGoogleSheets(this)
+        } else {
+            Log.w(TAG, "Permissions denied by user")
+            viewModel.handleSignInError("User denied permission")
+        }
+    }
+
+    private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            val account = task.getResult(ApiException::class.java)
+            viewModel.handleSignInResult(account)
+        } catch (e: ApiException) {
+            Log.e(TAG, "Sign in failed", e)
+            viewModel.handleSignInError("Sign in failed: ${e.statusCode}")
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        Log.d(TAG, "MainActivity onCreate")
 
-        // Button for accessibility permission
-        findViewById<Button>(R.id.accessibilityButton).setOnClickListener {
-            if (!isAccessibilityServiceEnabled()) {
-                Toast.makeText(this, "Vui lòng bật Text Expander trong Cài đặt > Trợ năng", Toast.LENGTH_LONG).show()
-                openAccessibilitySettings()
-            } else {
-                Toast.makeText(this, "Đã cấp quyền trợ năng", Toast.LENGTH_SHORT).show()
-            }
+        // Setup Google Sign In
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope(DriveScopes.DRIVE_READONLY), Scope(SheetsScopes.SPREADSHEETS_READONLY))
+            .build()
+
+        googleSignInClient = GoogleSignIn.getClient(this, gso)
+
+        // Check if user is already signed in
+        val account = GoogleSignIn.getLastSignedInAccount(this)
+        if (account != null) {
+            Log.d(TAG, "User already signed in: ${account.email}")
+            viewModel.handleSignInResult(account)
         }
 
-        // Button for overlay permission
-        findViewById<Button>(R.id.overlayButton).setOnClickListener {
-            if (Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "Đã cấp quyền hiển thị trên màn hình", Toast.LENGTH_SHORT).show()
-            } else {
-                requestOverlayPermission()
-            }
-        }
-
-        // Button to start service
-        findViewById<Button>(R.id.startButton).setOnClickListener {
-            if (!isAccessibilityServiceEnabled()) {
-                Toast.makeText(this, "Vui lòng cấp quyền trợ năng trước", Toast.LENGTH_LONG).show()
-            } else if (!Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "Vui lòng cấp quyền hiển thị trên màn hình trước", Toast.LENGTH_LONG).show()
-            } else {
-                try {
-                    val serviceIntent = Intent(this, FloatingWindowService::class.java)
-                    startService(serviceIntent)
-                    Toast.makeText(this, "Đã bật Text Expander", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    Toast.makeText(this, "Lỗi khởi động service: ${e.message}", Toast.LENGTH_LONG).show()
+        setContent {
+            TxETheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    MainScreen(
+                        viewModel = viewModel,
+                        onSignInClick = { signIn() },
+                        onSyncClick = { viewModel.syncFromGoogleSheets(this) },
+                        onSheetSelected = { sheetId, sheetName ->
+                            viewModel.onSheetSelected(sheetId, sheetName, this)
+                        }
+                    )
                 }
             }
         }
     }
 
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        val accessibilityEnabled = Settings.Secure.getInt(
-            contentResolver,
-            Settings.Secure.ACCESSIBILITY_ENABLED
-        )
-        if (accessibilityEnabled == 1) {
-            val serviceString = Settings.Secure.getString(
-                contentResolver,
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            )
-            serviceString?.let {
-                return it.contains("${packageName}/${MyAccessibilityService::class.java.name}")
+    private fun signIn() {
+        val signInIntent = googleSignInClient.signInIntent
+        signInLauncher.launch(signInIntent)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == GoogleDriveManager.REQUEST_CODE_PERMISSIONS) {
+            if (resultCode == RESULT_OK) {
+                Log.d(TAG, "Permissions granted, retrying sync")
+                viewModel.syncFromGoogleSheets(this)
+            } else {
+                Log.w(TAG, "Permissions denied by user")
+                viewModel.handleSignInError("User denied permission")
             }
         }
-        return false
     }
 
-    private fun openAccessibilitySettings() {
-        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-        startActivity(intent)
-    }
-
-    private fun requestOverlayPermission() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:$packageName")
-        )
-        overlayPermissionLauncher.launch(intent)
+    fun launchPermissionRequest(intent: Intent) {
+        permissionLauncher.launch(intent)
     }
 }

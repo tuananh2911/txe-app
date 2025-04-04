@@ -1,6 +1,11 @@
 package com.example.txe
 
 data class Message(
-    val command: String,
-    val response: String
-) 
+    val text: String,
+    var response: String = "",
+    val isUserMessage: Boolean = true
+) {
+    fun createSystemResponse(): Message {
+        return Message(response, "", false)
+    }
+} 

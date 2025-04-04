@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TxE</string>
-    <string name="accessibility_service_description">Text Expander - Tự động thay thế text viết tắt</string>
+    <string name="keyboard_name">TxE Keyboard</string>
+    <string name="accessibility_service_description">Text Expander helps you type faster by replacing shortcuts with longer text. For example, type "brb" followed by a space to expand it to "be right back". This service is required to detect when you type shortcuts and replace them with the expanded text.</string>
     <string name="enable_accessibility_service">Enable Accessibility Service</string>
     <string name="service_status">Service Status: %1$s</string>
     <string name="service_enabled">Enabled</string>
     <string name="service_disabled">Disabled</string>
+    <string name="ime_name">TxE Keyboard</string>
+    <string name="default_web_client_id">1004450009563-b71ll6s8npnuh33tob5fdtuovaq8a8k4.apps.googleusercontent.com</string>
+    <string name="google_client_id">1004450009563-b71ll6s8npnuh33tob5fdtuovaq8a8k4.apps.googleusercontent.com</string>
 </resources>

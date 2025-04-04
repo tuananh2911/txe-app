@@ -7,14 +7,14 @@
     android:padding="8dp"
     android:fitsSystemWindows="true">
 
-    <!-- Nút đóng -->
+    <!-- Nút minimize -->
     <ImageButton
-        android:id="@+id/closeButton"
+        android:id="@+id/minimizeButton"
         android:layout_width="32dp"
         android:layout_height="32dp"
-        android:background="@drawable/messenger_close_button"
-        android:contentDescription="Close"
-        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:background="@drawable/messenger_minimize_button"
+        android:contentDescription="Minimize"
+        android:src="@android:drawable/ic_menu_compass"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -29,7 +29,7 @@
         app:layout_constraintBottom_toTopOf="@id/inputContainer"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/closeButton"
+        app:layout_constraintTop_toBottomOf="@id/minimizeButton"
         app:layout_constraintHeight_max="0dp"
         app:layout_constraintVertical_bias="0.0" />
 

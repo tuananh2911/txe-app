@@ -171,6 +171,7 @@ class ApiService(private val context: Context) {
                             Log.e(TAG, "Error parsing exchange rate response", e)
                             "Lỗi phân tích dữ liệu tỷ giá: ${e.message}"
                         }
+                        Log.d(TAG, "Exchange rate result: $result")
                         continuation.resume(result)
                     },
                     { error ->

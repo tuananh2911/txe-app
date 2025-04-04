@@ -10,7 +10,8 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
     private val messages = mutableListOf<Message>()
 
     class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val messageText: TextView = view.findViewById(R.id.messageText)
+        val userMessageText: TextView = view.findViewById(R.id.userMessageText)
+        val systemMessageText: TextView = view.findViewById(R.id.systemMessageText)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
@@ -21,7 +22,22 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
         val message = messages[position]
-        holder.messageText.text = "${message.command}\n${message.response}"
+        
+        // Reset visibility
+        holder.userMessageText.visibility = View.GONE
+        holder.systemMessageText.visibility = View.GONE
+
+        if (message.isUserMessage) {
+            holder.userMessageText.apply {
+                visibility = View.VISIBLE
+                text = message.text
+            }
+        } else {
+            holder.systemMessageText.apply {
+                visibility = View.VISIBLE
+                text = message.text
+            }
+        }
     }
 
     override fun getItemCount() = messages.size
@@ -33,8 +49,11 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
     fun updateLastMessage(response: String) {
         if (messages.isNotEmpty()) {
-            messages[messages.size - 1] = messages[messages.size - 1].copy(response = response)
-            notifyItemChanged(messages.size - 1)
+            val lastMessage = messages.last()
+            if (lastMessage.isUserMessage) {
+                // Add system response as a new message
+                addMessage(Message(response, "", false))
+            }
         }
     }
 } 
