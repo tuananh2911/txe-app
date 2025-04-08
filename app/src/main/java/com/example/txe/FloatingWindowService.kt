@@ -26,6 +26,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 class FloatingWindowService : Service() {
@@ -46,6 +48,12 @@ class FloatingWindowService : Service() {
     private val CLICK_DELAY = 300L // milliseconds
     private var commandService: CommandService? = null
     private var isBound = false
+
+    private var isGameActive = false
+    private var lastWord: String? = null
+    private var gameJob: Job? = null // Để quản lý timeout
+    private val gameScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val validWords = listOf("con", "chó", "mèo", "sủa", "to", "nhỏ", "đẹp", "xấu") // Danh sách từ mẫu
 
     companion object {
         private const val TAG = "FloatingWindowService"

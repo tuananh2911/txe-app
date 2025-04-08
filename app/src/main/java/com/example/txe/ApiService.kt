@@ -7,6 +7,7 @@ import com.android.volley.Request
 import com.android.volley.RequestQueue
 import com.android.volley.toolbox.JsonObjectRequest
 import com.android.volley.toolbox.Volley
+import com.google.ai.client.generativeai.GenerativeModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -14,6 +15,7 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.coroutines.resume
+import org.json.JSONArray
 
 class ApiService(private val context: Context) {
     private val TAG = "ApiService"
@@ -21,6 +23,77 @@ class ApiService(private val context: Context) {
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private val queue: RequestQueue by lazy { Volley.newRequestQueue(context) }
 
+    companion object {
+        private const val OPENROUTER_API_KEY = "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" // Thay bằng API key của bạn
+        private const val SITE_URL = "https://openrouter.ai/api/v1"                // Thay bằng URL của bạn
+        private const val SITE_NAME = "<YOUR_SITE_NAME>"             // Thay bằng tên site của bạn
+    }
+
+    suspend fun getNextWordFromGemini(word: String): String? = withContext(Dispatchers.IO) {
+        suspendCancellableCoroutine { continuation ->
+            try {
+                val url = "https://openrouter.ai/api/v1/chat/completions"
+                val requestBody = JSONObject().apply {
+                    put("model", "google/gemini-pro")
+                    put("messages", JSONArray().put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", "Bạn hãy chơi nối từ với tôi, từ của tôi là  '$word'. Hãy đưa ra từ tiếp theo để nối nó phải có nghĩa theo từ điển nhé, chỉ trả về từ cần nối, không cần nhắc lại từ của tôi, không giải thích, không có ký tự đặc biệt")
+                    }))
+                }
+
+                Log.d(TAG, "Requesting next word from Gemini: $url with body $requestBody")
+
+                val request = object : JsonObjectRequest(
+                    Method.POST, url, requestBody,
+                    { response ->
+                        val result = try {
+                            val choices = response.getJSONArray("choices")
+                            if (choices.length() > 0) {
+                                val message = choices.getJSONObject(0).getJSONObject("message")
+                                message.getString("content").trim()
+                            } else {
+                                null
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing Gemini response", e)
+                            null
+                        }
+                        continuation.resume(result)
+                    },
+                    { error ->
+                        Log.e(TAG, "Volley error getting Gemini response", error)
+                        continuation.resume(null)
+                    }
+                ) {
+                    override fun getHeaders(): MutableMap<String, String> {
+                        return mutableMapOf(
+                            "Authorization" to "Bearer $OPENROUTER_API_KEY",
+                            "HTTP-Referer" to SITE_URL,
+                            "X-Title" to SITE_NAME,
+                            "Content-Type" to "application/json"
+                        )
+                    }
+                }
+                queue.add(request)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initiating Gemini request", e)
+                continuation.resume(null)
+            }
+        }
+    }
+
+    suspend fun chatGeminiApi(word: String): String? {
+        val generativeModel = GenerativeModel(
+            // The Gemini 1.5 models are versatile and work with both text-only and multimodal prompts
+            modelName = "gemini-1.5-flash",
+            // Access your API key as a Build Configuration variable (see "Set up your API key" above)
+            apiKey = BuildConfig.API_KEY
+        )
+
+        val prompt = "Bạn hãy chơi nối từ với tôi, từ của tôi là  '$word'. Hãy đưa ra từ tiếp theo để nối nó phải có nghĩa theo từ điển nhé, chỉ trả về từ cần nối, không cần nhắc lại từ của tôi, không giải thích, không có ký tự đặc biệt"
+        val response = generativeModel.generateContent(prompt)
+        return response.text
+    }
     private suspend fun getUserLocationFromIP(): Pair<String, String> = withContext(Dispatchers.IO) {
         suspendCancellableCoroutine { continuation ->
             try {
