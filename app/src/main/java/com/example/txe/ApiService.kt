@@ -8,6 +8,8 @@ import com.android.volley.RequestQueue
 import com.android.volley.toolbox.JsonObjectRequest
 import com.android.volley.toolbox.Volley
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.GenerationConfig
+import com.google.api.client.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -16,7 +18,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.coroutines.resume
 import org.json.JSONArray
-
 class ApiService(private val context: Context) {
     private val TAG = "ApiService"
     private val prefs: SharedPreferences = context.getSharedPreferences("TextExpander", Context.MODE_PRIVATE)
@@ -82,15 +83,27 @@ class ApiService(private val context: Context) {
         }
     }
 
-    suspend fun chatGeminiApi(word: String): String? {
+    suspend fun chatGeminiApi(prompt: String): String? {
         val generativeModel = GenerativeModel(
             // The Gemini 1.5 models are versatile and work with both text-only and multimodal prompts
-            modelName = "gemini-1.5-flash",
+            modelName = "gemini-2.0-flash",
             // Access your API key as a Build Configuration variable (see "Set up your API key" above)
             apiKey = BuildConfig.API_KEY
         )
+        val response = generativeModel.generateContent(prompt)
+        return response.text
+    }
 
-        val prompt = "Bạn hãy chơi nối từ với tôi, từ của tôi là  '$word'. Hãy đưa ra từ tiếp theo để nối nó phải có nghĩa theo từ điển nhé, chỉ trả về từ cần nối, không cần nhắc lại từ của tôi, không giải thích, không có ký tự đặc biệt"
+    suspend fun chatGeminiJson(prompt: String): String? {
+        val generationConfig = GenerationConfig.builder()
+        generationConfig.responseMimeType = "application/json"
+        val generativeModel = GenerativeModel(
+            generationConfig = generationConfig.build(),
+            // The Gemini 1.5 models are versatile and work with both text-only and multimodal prompts
+            modelName = "gemini-2.0-flash",
+            // Access your API key as a Build Configuration variable (see "Set up your API key" above)
+            apiKey = BuildConfig.API_KEY
+        )
         val response = generativeModel.generateContent(prompt)
         return response.text
     }

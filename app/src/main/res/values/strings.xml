@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">TxE</string>
     <string name="keyboard_name">TxE Keyboard</string>
-    <string name="accessibility_service_description">Text Expander helps you type faster by replacing shortcuts with longer text. For example, type "brb" followed by a space to expand it to "be right back". This service is required to detect when you type shortcuts and replace them with the expanded text.</string>
+    <string name="accessibility_service_description">GiGi helps you type faster by replacing shortcuts with longer text. For example, type "brb" followed by a space to expand it to "be right back". This service is required to detect when you type shortcuts and replace them with the expanded text.</string>
     <string name="enable_accessibility_service">Enable Accessibility Service</string>
     <string name="service_status">Service Status: %1$s</string>
     <string name="service_enabled">Enabled</string>

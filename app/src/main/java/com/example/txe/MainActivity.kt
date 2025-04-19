@@ -27,22 +27,18 @@ class MainActivity : ComponentActivity() {
     private lateinit var googleSignInClient: GoogleSignInClient
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            Log.d(TAG, "Permissions granted, retrying sync")
-            viewModel.syncFromGoogleSheets(this)
-        } else {
-            Log.w(TAG, "Permissions denied by user")
-            viewModel.handleSignInError("User denied permission")
-        }
+        Log.d(TAG, "Permission result received, resultCode: ${result.resultCode}")
+        viewModel.onPermissionResult()
     }
 
     private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         try {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             val account = task.getResult(ApiException::class.java)
-            viewModel.handleSignInResult(account)
+            Log.d(TAG, "Sign in successful: ${account.email}")
+            viewModel.handleSignInResult(account, this)
         } catch (e: ApiException) {
-            Log.e(TAG, "Sign in failed", e)
+            Log.e(TAG, "Sign in failed with status code: ${e.statusCode}", e)
             viewModel.handleSignInError("Sign in failed: ${e.statusCode}")
         }
     }
@@ -59,13 +55,6 @@ class MainActivity : ComponentActivity() {
 
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // Check if user is already signed in
-        val account = GoogleSignIn.getLastSignedInAccount(this)
-        if (account != null) {
-            Log.d(TAG, "User already signed in: ${account.email}")
-            viewModel.handleSignInResult(account)
-        }
-
         setContent {
             TxETheme {
                 Surface(
@@ -74,8 +63,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen(
                         viewModel = viewModel,
-                        onSignInClick = { signIn() },
-                        onSyncClick = { viewModel.syncFromGoogleSheets(this) },
+                        onSyncClick = { viewModel.onSyncClick(this) },
                         onSheetSelected = { sheetId, sheetName ->
                             viewModel.onSheetSelected(sheetId, sheetName, this)
                         }
@@ -85,25 +73,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun signIn() {
-        val signInIntent = googleSignInClient.signInIntent
-        signInLauncher.launch(signInIntent)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == GoogleDriveManager.REQUEST_CODE_PERMISSIONS) {
-            if (resultCode == RESULT_OK) {
-                Log.d(TAG, "Permissions granted, retrying sync")
-                viewModel.syncFromGoogleSheets(this)
-            } else {
-                Log.w(TAG, "Permissions denied by user")
-                viewModel.handleSignInError("User denied permission")
-            }
-        }
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "MainActivity onResume")
+        viewModel.onPermissionResult()
     }
 
     fun launchPermissionRequest(intent: Intent) {
+        Log.d(TAG, "Launching permission request")
         permissionLauncher.launch(intent)
+    }
+
+    fun launchSignIn() {
+        Log.d(TAG, "Launching sign in intent")
+        val signInIntent = googleSignInClient.signInIntent
+        signInLauncher.launch(signInIntent)
     }
 }

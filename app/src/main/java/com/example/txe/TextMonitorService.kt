@@ -57,7 +57,7 @@ class TextMonitorService : NotificationListenerService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Text Expander",
+                "GiGi",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Notifications for text expansion"
@@ -79,7 +79,7 @@ class TextMonitorService : NotificationListenerService() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_edit)
-            .setContentTitle("Text Expander")
+            .setContentTitle("GiGi")
             .setContentText("Đã copy: $value")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)

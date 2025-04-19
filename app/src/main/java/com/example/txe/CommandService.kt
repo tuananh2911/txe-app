@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.ui.text.toLowerCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,7 +20,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.Locale
+import kotlin.random.Random
+
 
 class CommandService : Service() {
     private val TAG = "CommandService"
@@ -30,6 +30,7 @@ class CommandService : Service() {
     private var isGameActive = false
     private var lastWord: String? = null
     private var gameJob: Job? = null
+    private var validWords: List<String> = emptyList()
 
     inner class LocalBinder : Binder() {
         fun getService(): CommandService = this@CommandService
@@ -59,6 +60,7 @@ class CommandService : Service() {
         Log.d(TAG, "CommandService created")
         apiService = ApiService(applicationContext)
         Log.d(TAG, "ApiService initialized")
+        loadWordList()
         try {
             val filter = IntentFilter("COMMAND_DIRECT")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -66,7 +68,12 @@ class CommandService : Service() {
             } else {
                 registerReceiver(commandReceiver, filter)
             }
-            Log.d(TAG, "Registered command receiver with filter: ${filter.actionsIterator().asSequence().toList()}")
+            Log.d(
+                TAG,
+                "Registered command receiver with filter: ${
+                    filter.actionsIterator().asSequence().toList()
+                }"
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing command receiver", e)
         }
@@ -88,43 +95,153 @@ class CommandService : Service() {
         serviceScope.launch {
             try {
                 val result = when {
-                    lowerCommand.startsWith("/thoitiet") -> {
+                    // Xử lý các lệnh khác khi không trong trò chơi
+                    !isGameActive && lowerCommand.startsWith("jjthoitiet") -> {
                         Log.d(TAG, "Processing weather command")
                         apiService?.getWeatherInfo() ?: "Không thể lấy thông tin thời tiết"
                     }
-                    lowerCommand.startsWith("/tygia") -> {
+
+                    !isGameActive && lowerCommand.startsWith("jjtygia") -> {
                         Log.d(TAG, "Processing exchange rate command")
-                        val currency = lowerCommand.substringAfter("/tygia").trim()
+                        val currency = lowerCommand.substringAfter("jjtygia").trim()
                         Log.d(TAG, "Getting exchange rate for currency: $currency")
                         apiService?.getExchangeRate(currency) ?: "Không thể lấy tỷ giá"
                     }
-                    lowerCommand == "/amlich" -> apiService?.getLunarDate() ?: "Lỗi khởi tạo service"
-                    lowerCommand.startsWith("/phatnguoi") -> {
+
+                    !isGameActive && lowerCommand == "jjamlich" -> {
+                        apiService?.getLunarDate() ?: "Lỗi khởi tạo service"
+                    }
+
+                    !isGameActive && lowerCommand.startsWith("jjdich") -> {
+                        val afterPrefix =
+                            lowerCommand.substringAfter("jjdich") // Lấy phần sau "jjdich"
+                        if (afterPrefix.isEmpty()) {
+                            "Vui lòng nhập đúng cú pháp: jjdich{ngôn ngữ đích} <câu cần dịch> \nVí dụ: jjdichen tôi là ai"
+                        } else {
+                            val langToTrans =
+                                afterPrefix.take(2) // Lấy 2 ký tự đầu làm ngôn ngữ đích
+                            val text = afterPrefix.drop(2).trim() // Lấy phần còn lại làm text
+                            if (text.isEmpty()) {
+                                "Vui lòng nhập câu cần dịch sau ngôn ngữ đích, ví dụ: jjdich$langToTrans tôi là ai"
+                            } else {
+                                Log.d(TAG, "Text to translate: $text")
+                                apiService?.chatGeminiApi("Hãy dịch đoạn text sau sang ngôn ngữ có mã hiệu $langToTrans: $text .Lưu ý câu trả lời là đoạn text đã được dịch, không cần giải thích gì thêm")
+                                    ?: "Không thể dịch lúc này"
+                            }
+                        }
+                    }
+
+                    !isGameActive && lowerCommand.startsWith("jjnguphap") -> {
+                        val afterPrefix =
+                            lowerCommand.substringAfter("jjnguphap") // Lấy phần sau "jjnguphap"
+                        if (afterPrefix.isEmpty()) {
+                            "Vui lòng nhập đúng cú pháp: jjnguphap <câu cần check ngữ pháp> \nVí dụ: jjnguphap tôi là ai"
+                        } else {
+                            val text = afterPrefix.trim() // Lấy phần còn lại làm text
+                            Log.d(TAG, "Grammarly: $text")
+                            if (text.isEmpty()) {
+                                "Vui lòng nhập câu cần check ngữ pháp, ví dụ: jjnguphap tôi là ai"
+                            } else {
+                                Log.d(TAG, "Text to grammarly: $text")
+                                apiService?.chatGeminiApi("Hãy check ngữ pháp của đoạn text sau : $text .Lưu ý trả lời là giải thích ngữ pháp đúng, và đoạn ngữ pháp đã được sửa, ngắn gọn xúc tích và trả lời bằng tiếng việt ")
+                                    ?: "Không thể kiểm tra ngữ pháp lúc này"
+                            }
+                        }
+                    }
+
+                    !isGameActive && lowerCommand.startsWith("jjtratu") -> {
+                        val afterPrefix = lowerCommand.substringAfter("jjtratu").trim()
+                        if (afterPrefix.isEmpty()) {
+                            "Vui lòng nhập đúng cú pháp: jjtratu<ngôn ngữ> <từ cần tra>\nVí dụ: jjtratuen hello"
+                        } else {
+                            val langToSearch = afterPrefix.take(2)
+                            val text = afterPrefix.drop(2).trim()
+                            if (text.isEmpty()) {
+                                "Vui lòng nhập từ cần tra, ví dụ: jjtratu$langToSearch hello"
+                            } else {
+                                Log.d(TAG, "Text to search: $text")
+                                val prompt = """Translate the following word '$text' into the language with the code '$langToSearch', then look up the translated word.
+                Use this JSON schema:
+                WordEntry = {
+                    'pronunciation': str,     # Phonetic pronunciation of the translated word in the language with the code $langToSearch
+                    'part_of_speech': str,    # The word's part of speech in the language with the code $langToSearch
+                    'translation': str,       # Translation of the word '$text' into the language with the code $langToSearch
+                    'usage': str              # Example sentence or common usage of the translated word in the language $langToSearch
+                }
+                Return: list[WordEntry]
+                Return exactly one entry as a valid JSON string."""
+                                val jsonResult = apiService?.chatGeminiJson(prompt)
+                                if (jsonResult != null) {
+                                    try {
+                                        val jsonArray = JSONArray(jsonResult)
+                                        val jsonObject = jsonArray.getJSONObject(0)
+                                        val translation = jsonObject.getString("translation")
+                                        val partOfSpeech = jsonObject.getString("part_of_speech")
+                                        val pronunciation = jsonObject.getString("pronunciation")
+                                        val usage = jsonObject.getString("usage")
+
+                                        // Tin nhắn 1: Translation với biểu tượng loa (dùng định dạng đặc biệt để báo hiệu)
+                                        val translationMessage = "Translation: $translation [SPEAKER:$translation:$langToSearch]"
+                                        sendBroadcast(Intent("COMMAND_RESULT").apply {
+                                            putExtra("command_result", translationMessage)
+                                            setPackage("com.example.txe")
+                                        })
+
+                                        // Tin nhắn 2: Các thông tin còn lại
+                                        val detailsMessage = """
+                                        Part of Speech: $partOfSpeech
+                                        Pronunciation: $pronunciation
+                                        Usage: $usage
+                                    """.trimIndent()
+                                        sendBroadcast(Intent("COMMAND_RESULT").apply {
+                                            putExtra("command_result", detailsMessage)
+                                            setPackage("com.example.txe")
+                                        })
+
+                                        null // Không cần trả về giá trị trực tiếp vì đã gửi broadcast
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Error parsing JSON", e)
+                                        "Lỗi khi phân tích kết quả: ${e.message}"
+                                    }
+                                } else {
+                                    "Không thể tra từ lúc này"
+                                }
+                            }
+                        }
+                    }
+
+                    !isGameActive && lowerCommand.startsWith("jjphatnguoi") -> {
                         val parts = lowerCommand.split(" ")
                         if (parts.size > 1) {
                             val plateNumber = parts[1].trim()
                             apiService?.getTrafficViolations(plateNumber) ?: "Lỗi khởi tạo service"
                         } else {
-                            "Vui lòng nhập biển số xe. Ví dụ: /phatnguoi 30a-12345"
+                            "Vui lòng nhập biển số xe. Ví dụ: jjphatnguoi 30a-12345"
                         }
                     }
-                    lowerCommand.startsWith("/noitu") -> {
-                        if (!isGameActive) {
-                            handleWordChainGame(lowerCommand)
+                    // Xử lý trò chơi nối từ
+                    lowerCommand.startsWith("jjnoitu") -> {
+                        if (lowerCommand == "jjnoitu end") {
+                            isGameActive = false
+                            "Trò chơi nối từ đã kết thúc!"
                         } else {
-                            handleWordChainResponse(lowerCommand)
+                            handleWordChainGame(lowerCommand)
                         }
                     }
+
                     isGameActive -> {
-                        "Đang trong phiên chơi nối từ! Dùng /noitu để tiếp tục, ví dụ: /noitu $lastWord <từ mới>"
+                        handleWordChainResponse(lowerCommand)
                     }
+
                     else -> "Lệnh không hợp lệ"
                 }
                 Log.d(TAG, "Command result: $result")
-                sendBroadcast(Intent("COMMAND_RESULT").apply {
-                    putExtra("command_result", result)
-                    setPackage("com.example.txe")
-                })
+                if (result != null) { // Chỉ gửi broadcast nếu result không null
+                    sendBroadcast(Intent("COMMAND_RESULT").apply {
+                        putExtra("command_result", result)
+                        setPackage("com.example.txe")
+                    })
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing command", e)
                 sendBroadcast(Intent("COMMAND_RESULT").apply {
@@ -134,18 +251,45 @@ class CommandService : Service() {
         }
     }
 
+    private fun loadWordList() {
+        try {
+            val assetFiles = assets.list("") // Lấy danh sách file trong thư mục assets gốc
+            Log.d(TAG, "Files in assets: ${assetFiles?.joinToString() ?: "Empty"}")
+            if (assetFiles?.contains("word.json") == true) {
+                val jsonString = assets.open("word.json").bufferedReader().use { it.readText() }
+                val jsonArray = JSONArray(jsonString)
+                val wordList = mutableListOf<String>()
+                for (i in 0 until jsonArray.length()) {
+                    val item = jsonArray.getJSONObject(i)
+                    val text = item.getString("text")
+                    wordList.add(text)
+                }
+                validWords = wordList
+                Log.d(TAG, "Loaded ${validWords.size} words from word.json")
+            } else {
+                Log.e(TAG, "word.json not found in assets!")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading word list", e)
+        }
+    }
+
     private suspend fun handleWordChainGame(command: String): String {
-        val input = command.removePrefix("/noitu").trim()
+        val input = command.removePrefix("jjnoitu").trim()
 
         if (input.isEmpty()) {
-            return "Vui lòng nhập từ đầu tiên, ví dụ: /noitu con chó"
+            return "Vui lòng nhập từ đầu tiên, ví dụ: jjnoitu con chó"
         }
 
         val words = input.split(" ").filter { it.isNotBlank() }
         if (words.size != 2) {
             return "Vui lòng nhập đúng 2 từ!"
         }
-
+        if (!validWords.any { it.toLowerCase() == input }) {
+            Log.d(TAG, "Invalid word: $input not in validWords")
+            endGame()
+            return "Từ '$input' không hợp lệ, bạn thua!"
+        }
         isGameActive = true
         lastWord = words.last()
         println("words $words")
@@ -155,25 +299,56 @@ class CommandService : Service() {
     }
 
     private suspend fun handleWordChainResponse(command: String): String {
-        val input = command.removePrefix("/noitu").trim()
+        val input = command.trim()
         val words = input.split(" ").filter { it.isNotBlank() }
+        Log.d(TAG, "Input: $input, LastWord: $lastWord")
+
         if (words.size != 2) {
-            return "Vui lòng nhập đúng 2 từ với /noitu!"
+            return "Vui lòng nhập đúng 2 từ"
         }
 
-//        if (words.first().toLowerCase() != lastWord?.toLowerCase()) {
-//            return "Từ đầu phải là '$lastWord'! Thử lại với /noitu $lastWord <từ mới>"
-//        }
+        if (!validWords.any { it.toLowerCase() == input }) {
+            Log.d(TAG, "Invalid word: $input not in validWords")
+            endGame()
+            return "Từ '$input' không hợp lệ, bạn thua!"
+        }
 
+        if (words.first().toLowerCase() != lastWord?.toLowerCase()) {
+            Log.d(TAG, "First word '${words[0]}' does not match lastWord '$lastWord'")
+            endGame()
+            return "Từ đầu '${words[0]}' không khớp với '$lastWord', bạn thua!"
+        }
+
+        Log.d(TAG, "Valid input: $input, proceeding with game")
         gameJob?.cancel()
         lastWord = words.last()
-        val response = startGameTurn("${words[0]} ${words[1]}")
+        val response = startGameTurn(input)
         return "Từ của bạn: $input. Hệ thống: $response"
+    }
+
+
+    private fun findWord(wordToMap: String): String? {
+        // Lọc các chuỗi trong validWords có từ đầu khớp với lastWord (không phân biệt hoa/thường)
+        val matchingWords = validWords.filter { word ->
+            val firstWord = word.split(" ")[0].toLowerCase()
+            firstWord == wordToMap.split(" ")[1].toLowerCase()
+        }
+
+        // Nếu không có từ khớp, trả về null
+        if (matchingWords.isEmpty()) {
+            Log.d(TAG, "No matching words found for: $wordToMap")
+            return null
+        }
+
+        // Chọn ngẫu nhiên một từ từ danh sách khớp
+        val randomWord = matchingWords[Random.nextInt(matchingWords.size)]
+        Log.d(TAG, "Matching words: $matchingWords, Selected: $randomWord")
+        return randomWord
     }
 
     private suspend fun startGameTurn(userWord: String): String {
         println("userword ${userWord}")
-        val response = apiService?.chatGeminiApi(userWord)
+        val response = findWord(userWord)
         println("respone $response")
         if (response != null) {
             lastWord = response.split(" ").filter { it.isNotBlank() }[1]
