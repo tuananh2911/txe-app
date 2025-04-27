@@ -23,30 +23,23 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun BubbleIcon() {
-    var isPressed by remember { mutableStateOf(false) }
-
+fun BubbleIcon(isChatOpen: Boolean, isLongPress: Boolean) {
     Box(
         modifier = Modifier
-            .size(48.dp) // Kích thước cố định 48dp
-            .shadow(4.dp, CircleShape) // Bóng đổ nhẹ
-            .background(Color.Gray.copy(alpha = 0.2f), CircleShape) // Nền xám mờ
-            .alpha(if (isPressed) 1.0f else 0.5f) // Độ mờ thay đổi khi nhấn
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { isPressed = true },
-                    onDragEnd = { isPressed = false },
-                    onDragCancel = { isPressed = false },
-                    onDrag = { _, _ -> } // Kéo thả được xử lý ở setOnTouchListener
-                )
-            },
+            .size(48.dp)
+            .shadow(4.dp, CircleShape)
+            .background(
+                if (isChatOpen) Color.White else Color.Gray.copy(alpha = 0.2f),
+                CircleShape
+            )
+            .alpha(if (!isChatOpen && !isLongPress) 0.5f else 1.0f),
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.Default.Chat, // Icon chat mặc định
+            imageVector = Icons.Default.Chat,
             contentDescription = "Chat Bubble",
-            tint = Color.Gray, // Màu xám
-            modifier = Modifier.size(24.dp) // Icon nhỏ hơn kích thước nền
+            tint = if (isLongPress) Color.Red else if (isChatOpen) Color(0xFF00FFFF) else Color.Gray,
+            modifier = Modifier.size(32.dp)
         )
     }
 }

@@ -30,59 +30,6 @@ class ApiService(private val context: Context) {
         private const val SITE_NAME = "<YOUR_SITE_NAME>"             // Thay bằng tên site của bạn
     }
 
-    suspend fun getNextWordFromGemini(word: String): String? = withContext(Dispatchers.IO) {
-        suspendCancellableCoroutine { continuation ->
-            try {
-                val url = "https://openrouter.ai/api/v1/chat/completions"
-                val requestBody = JSONObject().apply {
-                    put("model", "google/gemini-pro")
-                    put("messages", JSONArray().put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", "Bạn hãy chơi nối từ với tôi, từ của tôi là  '$word'. Hãy đưa ra từ tiếp theo để nối nó phải có nghĩa theo từ điển nhé, chỉ trả về từ cần nối, không cần nhắc lại từ của tôi, không giải thích, không có ký tự đặc biệt")
-                    }))
-                }
-
-                Log.d(TAG, "Requesting next word from Gemini: $url with body $requestBody")
-
-                val request = object : JsonObjectRequest(
-                    Method.POST, url, requestBody,
-                    { response ->
-                        val result = try {
-                            val choices = response.getJSONArray("choices")
-                            if (choices.length() > 0) {
-                                val message = choices.getJSONObject(0).getJSONObject("message")
-                                message.getString("content").trim()
-                            } else {
-                                null
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error parsing Gemini response", e)
-                            null
-                        }
-                        continuation.resume(result)
-                    },
-                    { error ->
-                        Log.e(TAG, "Volley error getting Gemini response", error)
-                        continuation.resume(null)
-                    }
-                ) {
-                    override fun getHeaders(): MutableMap<String, String> {
-                        return mutableMapOf(
-                            "Authorization" to "Bearer $OPENROUTER_API_KEY",
-                            "HTTP-Referer" to SITE_URL,
-                            "X-Title" to SITE_NAME,
-                            "Content-Type" to "application/json"
-                        )
-                    }
-                }
-                queue.add(request)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error initiating Gemini request", e)
-                continuation.resume(null)
-            }
-        }
-    }
-
     suspend fun chatGeminiApi(prompt: String): String? {
         val generativeModel = GenerativeModel(
             // The Gemini 1.5 models are versatile and work with both text-only and multimodal prompts
