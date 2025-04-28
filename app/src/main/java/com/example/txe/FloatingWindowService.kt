@@ -29,6 +29,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.util.Log
 import android.view.*
 import android.widget.Toast
@@ -71,6 +72,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 
 class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private var selectionRectParams: WindowManager.LayoutParams? = null
@@ -282,10 +285,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
     private fun setupScreenCapture() {
         try {
-            val metrics = resources.displayMetrics
-            val width = metrics.widthPixels
-            val height = metrics.heightPixels
-            val density = metrics.densityDpi
+            val metrics = getFullScreenMetrics()
+            val width = metrics.first
+            val height = metrics.second
+            val density = resources.displayMetrics.densityDpi
 
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
             virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -300,6 +303,21 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             Log.e(TAG, "Error setting up screen capture", e)
             messages.add(Message("Lỗi khởi tạo chụp màn hình: ${e.message}", "", "", false))
             isScreenCapturePermissionGranted = false
+        }
+    }
+
+    private fun getFullScreenMetrics(): Pair<Int, Int> {
+        val displayMetrics = DisplayMetrics()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.currentWindowMetrics
+            val bounds = metrics.bounds
+            return Pair(bounds.width(), bounds.height())
+        } else {
+            @Suppress("DEPRECATION")
+            val display = windowManager.defaultDisplay
+            @Suppress("DEPRECATION")
+            display.getRealMetrics(displayMetrics)
+            return Pair(displayMetrics.widthPixels, displayMetrics.heightPixels)
         }
     }
 
@@ -465,9 +483,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     @RequiresApi(Build.VERSION_CODES.O)
     private fun setupDimOverlay() {
         try {
-            val displayMetrics = resources.displayMetrics
-            val screenWidth = displayMetrics.widthPixels
-            val screenHeight = displayMetrics.heightPixels
+            // Get full screen dimensions including system bars
+            val (screenWidth, screenHeight) = getFullScreenMetrics()
             if (screenWidth <= 0 || screenHeight <= 0) {
                 Log.e(TAG, "Kích thước màn hình không hợp lệ: width=$screenWidth, height=$screenHeight")
                 Toast.makeText(this, "Lỗi: Kích thước màn hình không hợp lệ", Toast.LENGTH_LONG).show()
@@ -497,10 +514,13 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
+                x = 0
+                y = 0
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 }
@@ -509,8 +529,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             // Add touch listener for dragging and resizing
             dimOverlay?.setOnTouchListener { _, event ->
                 val cornerSize = 70f
-                val screenWidth = displayMetrics.widthPixels.toFloat()
-                val screenHeight = displayMetrics.heightPixels.toFloat()
+                val screenWidthFloat = screenWidth.toFloat()
+                val screenHeightFloat = screenHeight.toFloat()
 
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -552,8 +572,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         Log.d(TAG, "Touch move: deltaX=$deltaX, deltaY=$deltaY")
 
                         if (isDragging) {
-                            selectionRectX = (initialRectX + deltaX).coerceIn(0f, screenWidth - selectionRectWidth)
-                            selectionRectY = (initialRectY + deltaY).coerceIn(statusBarHeight.toFloat(), screenHeight - selectionRectHeight)
+                            selectionRectX = (initialRectX + deltaX).coerceIn(0f, screenWidthFloat - selectionRectWidth)
+                            selectionRectY = (initialRectY + deltaY).coerceIn(statusBarHeight.toFloat(), screenHeightFloat - selectionRectHeight)
                         } else if (isResizing) {
                             when (resizeCorner) {
                                 "topLeft" -> {
@@ -579,8 +599,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                             }
                             selectionRectWidth = maxOf(100f, selectionRectWidth)
                             selectionRectHeight = maxOf(100f, selectionRectHeight)
-                            selectionRectX = maxOf(0f, minOf(selectionRectX, screenWidth - selectionRectWidth))
-                            selectionRectY = maxOf(statusBarHeight.toFloat(), minOf(selectionRectY, screenHeight - selectionRectHeight))
+                            selectionRectX = maxOf(0f, minOf(selectionRectX, screenWidthFloat - selectionRectWidth))
+                            selectionRectY = maxOf(statusBarHeight.toFloat(), minOf(selectionRectY, screenHeightFloat - selectionRectHeight))
                         }
                         Log.d(TAG, "Updated selection rect: x=$selectionRectX, y=$selectionRectY, width=$selectionRectWidth, height=$selectionRectHeight")
                         updateDimOverlay()
@@ -871,7 +891,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     MotionEvent.ACTION_UP -> {
                         longPressHandler?.removeCallbacksAndMessages(null)
                         if (isDragging) {
-                            val screenWidth = resources.displayMetrics.widthPixels
+                            val screenWidth = getFullScreenMetrics().first
                             params.x = if (params.x > screenWidth / 2 - size / 2) screenWidth - size - 16 else 16
                             windowManager.updateViewLayout(view, params)
                             Log.d(TAG, "ACTION_UP: Dragged to x=${params.x}")
@@ -921,20 +941,26 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     fun BubbleIcon(isChatOpen: Boolean, isLongPress: Boolean) {
         Box(
             modifier = Modifier
-                .size(48.dp)
-                .shadow(4.dp, CircleShape)
-                .background(
-                    if (isChatOpen) Color.White else Color.Gray.copy(alpha = 0.2f),
-                    CircleShape
-                )
+                .size(50.dp)
+//                .shadow(4.dp, CircleShape)
+//                .background(
+//                    if (isChatOpen) Color.White else Color.Gray.copy(alpha = 0.2f),
+//                    CircleShape
+//                )
                 .alpha(if (!isChatOpen && !isLongPress) 0.5f else 1.0f),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Chat,
+            Image(
+                painter = painterResource(id = R.drawable.jj_icon), // Use the custom jj icon
                 contentDescription = "Chat Bubble",
-                tint = if (isLongPress) Color.Red else if (isChatOpen) Color(0xFF00FFFF) else Color.Gray,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(50.dp),
+                colorFilter = ColorFilter.tint(
+                    when {
+                        isLongPress -> Color.Red
+                        isChatOpen -> Color(0xFF00FFFF) // Cyan when chat is open
+                        else -> Color.Gray
+                    }
+                )
             )
         }
     }
@@ -962,9 +988,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 }
             }
 
-            val displayMetrics = resources.displayMetrics
-            val screenWidth = displayMetrics.widthPixels
-            val screenHeight = displayMetrics.heightPixels
+            val (screenWidth, screenHeight) = getFullScreenMetrics()
             val chatWindowWidth = (screenWidth * 0.95).toInt()
             val chatWindowHeight = (screenHeight * 0.7).toInt()
 
@@ -1026,8 +1050,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
             if (isOpening) {
                 val bubbleParams = bubbleButton.layoutParams as WindowManager.LayoutParams
-                val displayMetrics = resources.displayMetrics
-                bubbleParams.x = (displayMetrics.widthPixels - bubbleButton.width) / 2
+                val (screenWidth, _) = getFullScreenMetrics()
+                bubbleParams.x = (screenWidth - bubbleButton.width) / 2
                 bubbleParams.y = statusBarHeight + 16
                 windowManager.updateViewLayout(bubbleButton, bubbleParams)
 

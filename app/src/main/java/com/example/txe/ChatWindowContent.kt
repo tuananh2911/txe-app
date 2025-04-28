@@ -73,7 +73,7 @@ fun ChatWindowContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF0F2F5), shape = RoundedCornerShape(16.dp))
+            .background(Color.White, shape = RoundedCornerShape(16.dp)) // Changed to white
             .clip(RoundedCornerShape(16.dp))
             .padding(top = 16.dp, bottom = 8.dp, start = 4.dp, end = 4.dp)
             .imePadding()
@@ -184,7 +184,7 @@ fun MessageItem(
             Box(
                 modifier = Modifier
                     .background(
-                        if (message.isUserMessage) Color(0xFF0084FF) else Color(0xFFE4E6EB),
+                        if (message.isUserMessage) Color(0xFF0084FF) else Color(0xFFE4E6EB), // Gray background for system messages
                         shape = RoundedCornerShape(12.dp)
                     )
                     .padding(8.dp)
@@ -215,7 +215,7 @@ fun MessageItem(
                     // Hiển thị text (kết quả dịch hoặc thông báo)
                     Text(
                         text = message.text,
-                        color = if (message.isUserMessage) Color.White else Color.Black,
+                        color = Color.Black,
                         fontSize = 16.sp,
                         modifier = Modifier.padding(end = if (message.speakerInfo != null) 8.dp else 0.dp)
                     )
@@ -229,7 +229,7 @@ fun MessageItem(
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Play pronunciation",
-                                tint = Color.Gray
+                                tint = Color.White // White to match text color
                             )
                         }
                     }
