@@ -78,20 +78,6 @@ fun ChatWindowContent(
             .padding(top = 16.dp, bottom = 8.dp, start = 4.dp, end = 4.dp)
             .imePadding()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = 8.dp),
-            horizontalArrangement = Arrangement.End
-        ) {
-            IconButton(onClick = onMinimize) {
-                Icon(
-                    Icons.Default.Send, // Thay bằng icon thu nhỏ nếu cần
-                    contentDescription = "Minimize",
-                    tint = Color(0xFF0084FF)
-                )
-            }
-        }
 
         LazyColumn(
             modifier = Modifier
