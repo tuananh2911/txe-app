@@ -3,6 +3,8 @@ package com.example.txe
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
 import android.os.Vibrator
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
@@ -46,13 +48,13 @@ fun ChatWindowContent(
     messages: MutableList<Message>,
     onMinimize: () -> Unit,
     onSendCommand: (String) -> Unit,
-    isChatVisible: Boolean = false // Thêm tham số để biết khi nào khung chat hiển thị
+    isChatVisible: Boolean = false
 ) {
     val context = LocalContext.current
     val textToSpeech = remember {
         TextToSpeech(context) { status ->
             if (status != TextToSpeech.SUCCESS) {
-//                Log.e("ChatWindowContent", "TextToSpeech initialization failed")
+                Toast.makeText(context, "Không thể khởi tạo TextToSpeech", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -61,12 +63,11 @@ fun ChatWindowContent(
     val coroutineScope = rememberCoroutineScope()
     val keyboardHeight = WindowInsets.ime.getBottom(LocalDensity.current)
     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    val focusRequester = remember { FocusRequester() } // Tạo FocusRequester
+    val focusRequester = remember { FocusRequester() }
 
-    // Yêu cầu focus khi khung chat hiển thị
     LaunchedEffect(isChatVisible) {
         if (isChatVisible) {
-            focusRequester.requestFocus() // Yêu cầu focus vào ô nhập liệu
+            focusRequester.requestFocus()
         }
     }
 
@@ -119,7 +120,7 @@ fun ChatWindowContent(
                 modifier = Modifier
                     .weight(1f)
                     .background(Color.White, RoundedCornerShape(20.dp))
-                    .focusRequester(focusRequester), // Gắn FocusRequester vào TextField
+                    .focusRequester(focusRequester),
                 shape = RoundedCornerShape(20.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(
@@ -177,32 +178,42 @@ fun MessageItem(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.75f) // Giới hạn chiều rộng tối đa của toàn bộ tin nhắn là 75%
-                .wrapContentWidth(if (message.isUserMessage) Alignment.End else Alignment.Start) // Căn chỉnh sát mép phải hoặc trái
+                .fillMaxWidth(0.75f)
+                .wrapContentWidth(if (message.isUserMessage) Alignment.End else Alignment.Start)
         ) {
             Box(
                 modifier = Modifier
-                    .wrapContentWidth() // Phần nền chỉ rộng vừa đủ với nội dung
+                    .wrapContentWidth()
                     .background(
                         if (message.isUserMessage) Color(0xFF0084FF) else Color(0xFFE4E6EB),
                         shape = RoundedCornerShape(12.dp)
                     )
-                    .padding(horizontal = 12.dp, vertical = 8.dp) // Tăng padding để giống Messenger
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Column(
                     modifier = Modifier
-                        .wrapContentWidth() // Column chỉ rộng vừa đủ với nội dung
+                        .wrapContentWidth()
                 ) {
                     if (message.imagePath.isNotEmpty()) {
-                        Image(
-                            painter = rememberAsyncImagePainter(File(message.imagePath)),
-                            contentDescription = "Khu vực được chụp",
-                            modifier = Modifier
-                                .fillMaxWidth() // Hình ảnh sẽ chiếm toàn bộ chiều rộng của Column (đã được giới hạn bởi Row)
-                                .height(200.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .padding(bottom = 4.dp)
-                        )
+                        val file = File(message.imagePath)
+                        if (file.exists()) {
+                            Image(
+                                painter = rememberAsyncImagePainter(file),
+                                contentDescription = "Khu vực được chụp",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .padding(bottom = 4.dp)
+                            )
+                        } else {
+                            Text(
+                                text = "Không thể tải ảnh: Tệp không tồn tại",
+                                color = if (message.isUserMessage) Color.White else Color.Black,
+                                fontSize = 16.sp,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                        }
                     }
                     if (message.userMessage.isNotEmpty()) {
                         Text(
@@ -211,7 +222,7 @@ fun MessageItem(
                             fontSize = 16.sp,
                             softWrap = true,
                             modifier = Modifier
-                                .wrapContentWidth() // Text chỉ rộng vừa đủ với nội dung
+                                .wrapContentWidth()
                                 .padding(bottom = if (message.text.isNotEmpty()) 4.dp else 0.dp)
                         )
                     }
@@ -222,7 +233,7 @@ fun MessageItem(
                             fontSize = 16.sp,
                             softWrap = true,
                             modifier = Modifier
-                                .wrapContentWidth() // Text chỉ rộng vừa đủ với nội dung
+                                .wrapContentWidth()
                                 .padding(end = if (message.speakerInfo != null) 8.dp else 0.dp)
                         )
                     }
@@ -250,7 +261,7 @@ fun MessageItem(
                         .size(20.dp)
                         .alpha(0.7f)
                         .padding(top = 4.dp)
-                        .align(if (message.isUserMessage) Alignment.End else Alignment.Start) // Căn chỉnh icon copy sát mép
+                        .align(if (message.isUserMessage) Alignment.End else Alignment.Start)
                         .clickable {
                             val textToCopy = when {
                                 message.userMessage.isNotEmpty() -> message.userMessage
@@ -263,8 +274,8 @@ fun MessageItem(
                                 val clip = ClipData.newPlainText("Message", textToCopy)
                                 clipboard.setPrimaryClip(clip)
                                 Toast.makeText(context, "Đã sao chép", Toast.LENGTH_SHORT).show()
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                    vibrator.vibrate(android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
                                 } else {
                                     vibrator.vibrate(50)
                                 }

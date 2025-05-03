@@ -131,8 +131,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     private var screenCaptureResultCode: Int? = null
     private var screenCaptureData: Intent? = null
     private var statusBarHeight = 0
-    private var lastBubblePosition: Pair<Int, Int>? =
-        null // Lưu vị trí (x, y) của bubbleButton trước khi mở chat
+    private var lastBubblePosition: Pair<Int, Int>? = null
 
     companion object {
         private const val TAG = "FloatingWindowService"
@@ -198,7 +197,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         screenCaptureData = data
                         setupScreenCapture()
                         showDimOverlay()
-                        // Tự động chụp khu vực sau khi nhận quyền
                         captureSelectedArea()
                         Log.d(TAG, "Dim overlay shown and capture initiated")
                         Toast.makeText(
@@ -398,7 +396,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 Log.d(TAG, "Bubble button and stop record button shown after screen capture")
 
                 val x = selectionRectX.toInt()
-                val y = selectionRectY.toInt() // Bỏ trừ statusBarHeight
+                val y = selectionRectY.toInt()
                 val width = selectionRectWidth.toInt()
                 val height = selectionRectHeight.toInt()
 
@@ -419,12 +417,14 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
                 clearedArea = croppedBitmap
 
-                val file = File(cacheDir, "selected_area.png")
+                // Tạo tên tệp duy nhất bằng UUID
+                val uniqueId = UUID.randomUUID().toString()
+                val file = File(cacheDir, "selected_area_$uniqueId.png")
                 FileOutputStream(file).use { out ->
                     clearedArea?.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
 
-                val debugFile = File(getExternalFilesDir(null), "selected_area_debug.png")
+                val debugFile = File(getExternalFilesDir(null), "selected_area_debug_$uniqueId.png")
                 FileOutputStream(debugFile).use { out ->
                     clearedArea?.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
@@ -441,7 +441,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 }
 
                 stopScreenCapture()
-            }, 100) // Giảm thời gian chờ xuống 100ms
+            }, 100)
         } catch (e: Exception) {
             Log.e(TAG, "Error capturing selected area", e)
             messages.add(Message("Lỗi chụp ảnh: ${e.message}", "", "", false))
@@ -753,7 +753,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         dimOverlay?.visibility = View.GONE
         overlayBitmap?.eraseColor(android.graphics.Color.BLACK and 0xB0FFFFFF.toInt())
         isSelectionRectVisible = false
-        updateStopRecordButtonVisibility() // Cập nhật visibility khi ẩn dim overlay
+        updateStopRecordButtonVisibility()
         Log.d(TAG, "Dim overlay hidden")
     }
 
@@ -876,8 +876,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.END
-                x = 16 + size + 32 // Tăng khoảng cách để tránh chồng lấp với bubbleButton
-                y = 300 // Phù hợp với vị trí bubbleButton
+                x = 16 + size + 32
+                y = 300
             }
 
             stopRecordComposeView.setOnTouchListener { _, event ->
@@ -894,7 +894,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
             stopRecordButton = stopRecordComposeView
             windowManager.addView(stopRecordButton, stopRecordParams)
-            updateStopRecordButtonVisibility() // Đảm bảo visibility được thiết lập ban đầu
+            updateStopRecordButtonVisibility()
             Log.d(
                 TAG,
                 "Stop record button added to window, visibility: ${stopRecordButton?.visibility}"
@@ -913,7 +913,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 .clip(CircleShape)
         ) {
             Image(
-                painter = painterResource(id = R.drawable.ic_rm_screen), // Thử với drawable mặc định nếu cần
+                painter = painterResource(id = R.drawable.ic_rm_screen),
                 contentDescription = "Stop Screen Record",
             )
         }
@@ -1007,10 +1007,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                             windowManager.updateViewLayout(view, params)
                             Log.d(TAG, "ACTION_MOVE: x=${params.x}, y=${params.y}")
 
-                            // Cập nhật vị trí của nút dừng screen record
                             stopRecordParams?.let { stopParams ->
-                                stopParams.x =
-                                    params.x + size + 32 // Tăng khoảng cách để tránh chồng lấp
+                                stopParams.x = params.x + size + 32
                                 stopParams.y = params.y
                                 stopRecordButton?.let { stopButton ->
                                     windowManager.updateViewLayout(stopButton, stopParams)
@@ -1055,7 +1053,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                                 if (params.x > screenWidth / 2 - params.width / 2) screenWidth - params.width - 16 else 16
                             windowManager.updateViewLayout(view, params)
 
-                            // Cập nhật vị trí nút dừng screen record
                             stopRecordParams?.let { stopParams ->
                                 stopParams.x = params.x + size + 32
                                 stopParams.y = params.y
@@ -1136,7 +1133,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             bubbleParams.height = newSize
 
             if (isOpening) {
-                // Lưu vị trí hiện tại của bubbleButton trước khi mở chat
                 lastBubblePosition = Pair(bubbleParams.x, bubbleParams.y)
                 Log.d(
                     TAG,
@@ -1171,9 +1167,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         bubbleParams.y = maxOf(statusBarHeight, calculatedY)
                         windowManager.updateViewLayout(bubbleButton, bubbleParams)
 
-                        // Cập nhật vị trí nút dừng screen record
                         stopRecordParams?.let { stopParams ->
-                            stopParams.x = bubbleParams.x + newSize + 32 // Tăng khoảng cách
+                            stopParams.x = bubbleParams.x + newSize + 32
                             stopParams.y = bubbleParams.y
                             stopRecordButton?.let { stopButton ->
                                 windowManager.updateViewLayout(stopButton, stopParams)
@@ -1194,13 +1189,11 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
                 updateStopRecordButtonVisibility()
             } else {
-                // Khôi phục vị trí trước đó của bubbleButton
                 lastBubblePosition?.let { (savedX, savedY) ->
                     bubbleParams.x = savedX
                     bubbleParams.y = savedY
                     Log.d(TAG, "Restored bubble position: x=$savedX, y=$savedY")
                 } ?: run {
-                    // Fallback nếu không có vị trí trước đó
                     bubbleParams.x = screenWidth - newSize - 16
                     bubbleParams.y = statusBarHeight + 300
                     Log.w(
@@ -1210,7 +1203,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 }
                 windowManager.updateViewLayout(bubbleButton, bubbleParams)
 
-                // Cập nhật vị trí nút dừng screen record
                 stopRecordParams?.let { stopParams ->
                     stopParams.x = bubbleParams.x + newSize + 32
                     stopParams.y = bubbleParams.y
@@ -1361,7 +1353,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                             bubbleParams.y = maxOf(statusBarHeight, bubbleParams.y)
                             windowManager.updateViewLayout(bubbleButton, bubbleParams)
 
-                            // Cập nhật vị trí nút dừng screen record
                             stopRecordParams?.let { stopParams ->
                                 stopParams.x = bubbleParams.x + bubbleParams.width + 32
                                 stopParams.y = bubbleParams.y
@@ -1421,6 +1412,25 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
 
+    private fun clearOldCaptureFiles() {
+        try {
+            cacheDir.listFiles { file -> file.name.startsWith("selected_area_") }?.forEach { file ->
+                if (file.delete()) {
+                    Log.d(TAG, "Deleted old capture file: ${file.absolutePath}")
+                }
+            }
+            getExternalFilesDir(null)?.listFiles { file -> file.name.startsWith("selected_area_debug_") }?.forEach { file ->
+                if (!messages.any { it.imagePath == file.absolutePath }) {
+                    if (file.delete()) {
+                        Log.d(TAG, "Deleted unused debug file: ${file.absolutePath}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing old capture files", e)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         try {
@@ -1465,6 +1475,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             isCapturing = false
             overlayBitmap?.recycle()
             clearedArea?.recycle()
+
+            clearOldCaptureFiles()
 
             Log.d(TAG, "Service destroyed")
         } catch (e: Exception) {
