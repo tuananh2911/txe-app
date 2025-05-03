@@ -131,7 +131,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     private var screenCaptureResultCode: Int? = null
     private var screenCaptureData: Intent? = null
     private var statusBarHeight = 0
-    private var lastBubblePosition: Pair<Int, Int>? = null // Lưu vị trí (x, y) của bubbleButton trước khi mở chat
+    private var lastBubblePosition: Pair<Int, Int>? =
+        null // Lưu vị trí (x, y) của bubbleButton trước khi mở chat
 
     companion object {
         private const val TAG = "FloatingWindowService"
@@ -181,13 +182,15 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     }
 
     private val screenCaptureReceiver = object : BroadcastReceiver() {
+        @RequiresApi(Build.VERSION_CODES.O)
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "SCREEN_CAPTURE_PERMISSION") {
                 val resultCode = intent.getIntExtra("resultCode", Activity.RESULT_CANCELED)
                 val data = intent.getParcelableExtra<Intent>("data")
                 if (resultCode == Activity.RESULT_OK && data != null) {
                     Log.d(TAG, "Received screen capture permission")
-                    val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    val projectionManager =
+                        getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     try {
                         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
                         isScreenCapturePermissionGranted = true
@@ -195,16 +198,30 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         screenCaptureData = data
                         setupScreenCapture()
                         showDimOverlay()
-                        Log.d(TAG, "Dim overlay shown after permission")
-                        Toast.makeText(this@FloatingWindowService, "Hiển thị khung chọn khu vực", Toast.LENGTH_SHORT).show()
+                        // Tự động chụp khu vực sau khi nhận quyền
+                        captureSelectedArea()
+                        Log.d(TAG, "Dim overlay shown and capture initiated")
+                        Toast.makeText(
+                            this@FloatingWindowService,
+                            "Hiển thị khung chọn khu vực",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     } catch (e: Exception) {
                         Log.e(TAG, "Error initializing MediaProjection", e)
-                        messages.add(Message("Lỗi khởi tạo chụp màn hình: ${e.message}", "", "", false))
+                        messages.add(
+                            Message(
+                                "Lỗi khởi tạo chụp màn hình: ${e.message}",
+                                "",
+                                "",
+                                false
+                            )
+                        )
                     }
                 } else {
                     Log.e(TAG, "Screen capture permission denied")
                     messages.add(Message("Lỗi: Quyền chụp màn hình bị từ chối", "", "", false))
                     isScreenCapturePermissionGranted = false
+                    hideDimOverlay()
                 }
             }
         }
@@ -221,7 +238,11 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
             if (!Settings.canDrawOverlays(this)) {
                 Log.e(TAG, "Quyền overlay chưa được cấp")
-                Toast.makeText(this, "Cần quyền hiển thị trên màn hình để hoạt động", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this,
+                    "Cần quyền hiển thị trên màn hình để hoạt động",
+                    Toast.LENGTH_LONG
+                ).show()
                 stopSelf()
                 return
             }
@@ -247,13 +268,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 addAction("COMMAND_RESULT")
                 addAction("SCREEN_CAPTURE_PERMISSION")
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(commandResultReceiver, filter, RECEIVER_NOT_EXPORTED)
-                registerReceiver(screenCaptureReceiver, filter, RECEIVER_NOT_EXPORTED)
-            } else {
-                registerReceiver(commandResultReceiver, filter)
-                registerReceiver(screenCaptureReceiver, filter)
-            }
+
+            registerReceiver(commandResultReceiver, filter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(screenCaptureReceiver, filter, RECEIVER_NOT_EXPORTED)
+
             isReceiverRegistered = true
             Log.d(TAG, "Registered receivers")
 
@@ -274,7 +292,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 "Floating Window Service Channel",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
 
@@ -342,7 +361,13 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun captureSelectedArea() {
+        if (!isScreenCapturePermissionGranted) {
+            Log.d(TAG, "Requesting screen capture permission before capturing")
+            ScreenCaptureActivity.start(this)
+            return
+        }
         try {
             bubbleButton.visibility = View.GONE
             stopRecordButton?.visibility = View.GONE
@@ -378,14 +403,18 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 val height = selectionRectHeight.toInt()
 
                 Log.d(TAG, "Capture coordinates: x=$x, y=$y, width=$width, height=$height")
-                Log.d(TAG, "Screen bitmap: width=${screenBitmap.width}, height=${screenBitmap.height}")
+                Log.d(
+                    TAG,
+                    "Screen bitmap: width=${screenBitmap.width}, height=${screenBitmap.height}"
+                )
 
                 val safeX = maxOf(0, minOf(x, screenBitmap.width - width))
                 val safeY = maxOf(0, minOf(y, screenBitmap.height - height))
                 val safeWidth = minOf(width, screenBitmap.width - safeX)
                 val safeHeight = minOf(height, screenBitmap.height - safeY)
 
-                val croppedBitmap = Bitmap.createBitmap(screenBitmap, safeX, safeY, safeWidth, safeHeight)
+                val croppedBitmap =
+                    Bitmap.createBitmap(screenBitmap, safeX, safeY, safeWidth, safeHeight)
                 screenBitmap.recycle()
 
                 clearedArea = croppedBitmap
@@ -512,13 +541,17 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             val (screenWidth, screenHeight) = getFullScreenMetrics()
             if (screenWidth <= 0 || screenHeight <= 0) {
                 Log.e(TAG, "Kích thước màn hình không hợp lệ")
-                Toast.makeText(this, "Lỗi: Kích thước màn hình không hợp lệ", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Lỗi: Kích thước màn hình không hợp lệ", Toast.LENGTH_LONG)
+                    .show()
                 return
             }
 
             selectionRectX = (screenWidth - selectionRectWidth) / 2
             selectionRectY = (screenHeight - selectionRectHeight) / 2 + statusBarHeight
-            Log.d(TAG, "Initial selection rect: x=$selectionRectX, y=$selectionRectY, width=$selectionRectWidth, height=$selectionRectHeight")
+            Log.d(
+                TAG,
+                "Initial selection rect: x=$selectionRectX, y=$selectionRectY, width=$selectionRectWidth, height=$selectionRectHeight"
+            )
 
             overlayBitmap = Bitmap.createBitmap(screenWidth, screenHeight, Bitmap.Config.ARGB_8888)
             overlayCanvas = Canvas(overlayBitmap!!)
@@ -547,7 +580,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 x = 0
                 y = 0
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 }
             }
 
@@ -576,7 +610,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         if (!isResizing) {
                             isDragging = true
                         }
-                        Log.d(TAG, "Touch down: x=${event.rawX}, y=${event.rawY}, resizeCorner=$resizeCorner")
+                        Log.d(
+                            TAG,
+                            "Touch down: x=${event.rawX}, y=${event.rawY}, resizeCorner=$resizeCorner"
+                        )
 
                         val currentTime = System.currentTimeMillis()
                         if (currentTime - lastDoubleTapTime < DOUBLE_TAP_DELAY) {
@@ -589,14 +626,21 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         }
                         true
                     }
+
                     MotionEvent.ACTION_MOVE -> {
                         val deltaX = event.rawX - initialTouchXForRect
                         val deltaY = event.rawY - initialTouchYForRect
                         Log.d(TAG, "Touch move: deltaX=$deltaX, deltaY=$deltaY")
 
                         if (isDragging) {
-                            selectionRectX = (initialRectX + deltaX).coerceIn(0f, screenWidthFloat - selectionRectWidth)
-                            selectionRectY = (initialRectY + deltaY).coerceIn(statusBarHeight.toFloat(), screenHeightFloat - selectionRectHeight)
+                            selectionRectX = (initialRectX + deltaX).coerceIn(
+                                0f,
+                                screenWidthFloat - selectionRectWidth
+                            )
+                            selectionRectY = (initialRectY + deltaY).coerceIn(
+                                statusBarHeight.toFloat(),
+                                screenHeightFloat - selectionRectHeight
+                            )
                         } else if (isResizing) {
                             when (resizeCorner) {
                                 "topLeft" -> {
@@ -605,16 +649,19 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                                     selectionRectWidth = initialRectWidth - deltaX
                                     selectionRectHeight = initialRectHeight - deltaY
                                 }
+
                                 "topRight" -> {
                                     selectionRectY = initialRectY + deltaY
                                     selectionRectWidth = initialRectWidth + deltaX
                                     selectionRectHeight = initialRectHeight - deltaY
                                 }
+
                                 "bottomLeft" -> {
                                     selectionRectX = initialRectX + deltaX
                                     selectionRectWidth = initialRectWidth - deltaX
                                     selectionRectHeight = initialRectHeight + deltaY
                                 }
+
                                 "bottomRight" -> {
                                     selectionRectWidth = initialRectWidth + deltaX
                                     selectionRectHeight = initialRectHeight + deltaY
@@ -622,14 +669,24 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                             }
                             selectionRectWidth = maxOf(100f, selectionRectWidth)
                             selectionRectHeight = maxOf(100f, selectionRectHeight)
-                            selectionRectX = maxOf(0f, minOf(selectionRectX, screenWidthFloat - selectionRectWidth))
-                            selectionRectY = maxOf(statusBarHeight.toFloat(), minOf(selectionRectY, screenHeightFloat - selectionRectHeight))
+                            selectionRectX = maxOf(
+                                0f,
+                                minOf(selectionRectX, screenWidthFloat - selectionRectWidth)
+                            )
+                            selectionRectY = maxOf(
+                                statusBarHeight.toFloat(),
+                                minOf(selectionRectY, screenHeightFloat - selectionRectHeight)
+                            )
                         }
-                        Log.d(TAG, "Updated selection rect: x=$selectionRectX, y=$selectionRectY, width=$selectionRectWidth, height=$selectionRectHeight")
+                        Log.d(
+                            TAG,
+                            "Updated selection rect: x=$selectionRectX, y=$selectionRectY, width=$selectionRectWidth, height=$selectionRectHeight"
+                        )
                         updateDimOverlay()
                         dimOverlay?.invalidate()
                         true
                     }
+
                     MotionEvent.ACTION_UP -> {
                         isResizing = false
                         isDragging = false
@@ -637,6 +694,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         Log.d(TAG, "Touch up: isResizing=$isResizing, isDragging=$isDragging")
                         true
                     }
+
                     else -> false
                 }
             }
@@ -651,35 +709,43 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     }
 
     private fun showDimOverlay() {
-        if (!isScreenCapturePermissionGranted) {
-            Log.d(TAG, "Starting screen capture permission request")
-            ScreenCaptureActivity.start(this)
+        if (mediaProjection == null && screenCaptureResultCode != null && screenCaptureData != null) {
+            try {
+                val projectionManager =
+                    getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                mediaProjection = projectionManager.getMediaProjection(
+                    screenCaptureResultCode!!,
+                    screenCaptureData!!
+                )
+                Log.d(TAG, "MediaProjection reinitialized")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error reinitializing MediaProjection", e)
+                messages.add(
+                    Message(
+                        "Lỗi khởi tạo lại MediaProjection: ${e.message}",
+                        "",
+                        "",
+                        false
+                    )
+                )
+                isScreenCapturePermissionGranted = false
+            }
+        }
+        if (mediaProjection != null) {
+            setupScreenCapture()
+            dimOverlay?.visibility = View.VISIBLE
+            isSelectionRectVisible = true
+            updateDimOverlay()
+            updateStopRecordButtonVisibility()
+            Log.d(TAG, "Dim overlay shown with capture ready")
+            Toast.makeText(this, "Lớp mờ được hiển thị, nhấn đúp để chụp", Toast.LENGTH_SHORT).show()
         } else {
-            if (mediaProjection == null && screenCaptureResultCode != null && screenCaptureData != null) {
-                try {
-                    val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                    mediaProjection = projectionManager.getMediaProjection(screenCaptureResultCode!!, screenCaptureData!!)
-                    Log.d(TAG, "MediaProjection reinitialized")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error reinitializing MediaProjection", e)
-                    messages.add(Message("Lỗi khởi tạo lại MediaProjection: ${e.message}", "", "", false))
-                    isScreenCapturePermissionGranted = false
-                    ScreenCaptureActivity.start(this)
-                    return
-                }
-            }
-            if (mediaProjection != null) {
-                setupScreenCapture()
-                dimOverlay?.visibility = View.VISIBLE
-                isSelectionRectVisible = true
-                updateDimOverlay()
-                updateStopRecordButtonVisibility() // Đảm bảo gọi lại khi hiển thị dim overlay
-                Log.d(TAG, "Dim overlay shown")
-                Toast.makeText(this, "Lớp mờ được hiển thị, nhấn đúp để chụp", Toast.LENGTH_SHORT).show()
-            } else {
-                Log.w(TAG, "MediaProjection is null, requesting permission")
-                ScreenCaptureActivity.start(this)
-            }
+            Log.w(TAG, "MediaProjection is null, showing dim overlay without capture")
+            dimOverlay?.visibility = View.VISIBLE
+            isSelectionRectVisible = true
+            updateDimOverlay()
+            updateStopRecordButtonVisibility()
+            Toast.makeText(this, "Lớp mờ được hiển thị, nhấn đúp để chụp", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -693,7 +759,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
     private fun updateDimOverlay() {
         overlayCanvas?.let { canvas ->
-            canvas.drawColor(android.graphics.Color.BLACK and 0xB0FFFFFF.toInt(), PorterDuff.Mode.SRC)
+            canvas.drawColor(
+                android.graphics.Color.BLACK and 0xB0FFFFFF.toInt(),
+                PorterDuff.Mode.SRC
+            )
 
             val clearPaint = Paint().apply {
                 color = android.graphics.Color.TRANSPARENT
@@ -718,14 +787,62 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             val cornerLineLength = 30f
             val cornerOffset = 5f
 
-            canvas.drawLine(clearX - cornerOffset, clearY, clearX + cornerLineLength, clearY, cornerPaint)
-            canvas.drawLine(clearX, clearY - cornerOffset, clearX, clearY + cornerLineLength, cornerPaint)
-            canvas.drawLine(clearX + clearWidth - cornerLineLength, clearY, clearX + clearWidth + cornerOffset, clearY, cornerPaint)
-            canvas.drawLine(clearX + clearWidth, clearY - cornerOffset, clearX + clearWidth, clearY + cornerLineLength, cornerPaint)
-            canvas.drawLine(clearX - cornerOffset, clearY + clearHeight, clearX + cornerLineLength, clearY + clearHeight, cornerPaint)
-            canvas.drawLine(clearX, clearY + clearHeight - cornerLineLength, clearX, clearY + clearHeight + cornerOffset, cornerPaint)
-            canvas.drawLine(clearX + clearWidth - cornerLineLength, clearY + clearHeight, clearX + clearWidth + cornerOffset, clearY + clearHeight, cornerPaint)
-            canvas.drawLine(clearX + clearWidth, clearY + clearHeight - cornerLineLength, clearX + clearWidth, clearY + clearHeight + cornerOffset, cornerPaint)
+            canvas.drawLine(
+                clearX - cornerOffset,
+                clearY,
+                clearX + cornerLineLength,
+                clearY,
+                cornerPaint
+            )
+            canvas.drawLine(
+                clearX,
+                clearY - cornerOffset,
+                clearX,
+                clearY + cornerLineLength,
+                cornerPaint
+            )
+            canvas.drawLine(
+                clearX + clearWidth - cornerLineLength,
+                clearY,
+                clearX + clearWidth + cornerOffset,
+                clearY,
+                cornerPaint
+            )
+            canvas.drawLine(
+                clearX + clearWidth,
+                clearY - cornerOffset,
+                clearX + clearWidth,
+                clearY + cornerLineLength,
+                cornerPaint
+            )
+            canvas.drawLine(
+                clearX - cornerOffset,
+                clearY + clearHeight,
+                clearX + cornerLineLength,
+                clearY + clearHeight,
+                cornerPaint
+            )
+            canvas.drawLine(
+                clearX,
+                clearY + clearHeight - cornerLineLength,
+                clearX,
+                clearY + clearHeight + cornerOffset,
+                cornerPaint
+            )
+            canvas.drawLine(
+                clearX + clearWidth - cornerLineLength,
+                clearY + clearHeight,
+                clearX + clearWidth + cornerOffset,
+                clearY + clearHeight,
+                cornerPaint
+            )
+            canvas.drawLine(
+                clearX + clearWidth,
+                clearY + clearHeight - cornerLineLength,
+                clearX + clearWidth,
+                clearY + clearHeight + cornerOffset,
+                cornerPaint
+            )
 
             Log.d(TAG, "Updated overlay: cleared area with Google Lens-style corners")
             forceRedraw++
@@ -770,6 +887,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         stopScreenRecordCompletely()
                         true
                     }
+
                     else -> false
                 }
             }
@@ -777,7 +895,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             stopRecordButton = stopRecordComposeView
             windowManager.addView(stopRecordButton, stopRecordParams)
             updateStopRecordButtonVisibility() // Đảm bảo visibility được thiết lập ban đầu
-            Log.d(TAG, "Stop record button added to window, visibility: ${stopRecordButton?.visibility}")
+            Log.d(
+                TAG,
+                "Stop record button added to window, visibility: ${stopRecordButton?.visibility}"
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error in setupStopRecordButton", e)
             Toast.makeText(this, "Lỗi khởi tạo nút dừng: ${e.message}", Toast.LENGTH_LONG).show()
@@ -832,7 +953,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             }
 
             bubbleComposeView.setOnTouchListener { view, event ->
-                Log.d(TAG, "Touch event: ${event.action}, isLongPress=$isLongPress, isDragging=$isDragging")
+                Log.d(
+                    TAG,
+                    "Touch event: ${event.action}, isLongPress=$isLongPress, isDragging=$isDragging"
+                )
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = params.x
@@ -856,12 +980,17 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                                         )
                                     }
                                 }
-                                Toast.makeText(this@FloatingWindowService, "Giữ lâu: Hiển thị lớp mờ và hình chữ nhật", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    this@FloatingWindowService,
+                                    "Giữ lâu: Hiển thị lớp mờ và hình chữ nhật",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         }, LONG_PRESS_DELAY)
                         lastClickTime = System.currentTimeMillis()
                         true
                     }
+
                     MotionEvent.ACTION_MOVE -> {
                         val deltaX = event.rawX - initialTouchX
                         val deltaY = event.rawY - initialTouchY
@@ -880,7 +1009,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
                             // Cập nhật vị trí của nút dừng screen record
                             stopRecordParams?.let { stopParams ->
-                                stopParams.x = params.x + size + 32 // Tăng khoảng cách để tránh chồng lấp
+                                stopParams.x =
+                                    params.x + size + 32 // Tăng khoảng cách để tránh chồng lấp
                                 stopParams.y = params.y
                                 stopRecordButton?.let { stopButton ->
                                     windowManager.updateViewLayout(stopButton, stopParams)
@@ -905,18 +1035,24 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                                                 )
                                             }
                                         }
-                                        Toast.makeText(this@FloatingWindowService, "Giữ lâu: Hiển thị lớp mờ và hình chữ nhật", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(
+                                            this@FloatingWindowService,
+                                            "Giữ lâu: Hiển thị lớp mờ và hình chữ nhật",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 }, LONG_PRESS_DELAY)
                             }
                         }
                         true
                     }
+
                     MotionEvent.ACTION_UP -> {
                         longPressHandler?.removeCallbacksAndMessages(null)
                         if (isDragging) {
                             val screenWidth = getFullScreenMetrics().first
-                            params.x = if (params.x > screenWidth / 2 - params.width / 2) screenWidth - params.width - 16 else 16
+                            params.x =
+                                if (params.x > screenWidth / 2 - params.width / 2) screenWidth - params.width - 16 else 16
                             windowManager.updateViewLayout(view, params)
 
                             // Cập nhật vị trí nút dừng screen record
@@ -953,6 +1089,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         }
                         true
                     }
+
                     else -> false
                 }
             }
@@ -993,24 +1130,35 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             val bubbleParams = bubbleButton.layoutParams as WindowManager.LayoutParams
             val (screenWidth, _) = getFullScreenMetrics()
 
-            val newSize = if (isOpening) (64 * resources.displayMetrics.density).toInt() else (48 * resources.displayMetrics.density).toInt()
+            val newSize =
+                if (isOpening) (64 * resources.displayMetrics.density).toInt() else (48 * resources.displayMetrics.density).toInt()
             bubbleParams.width = newSize
             bubbleParams.height = newSize
 
             if (isOpening) {
                 // Lưu vị trí hiện tại của bubbleButton trước khi mở chat
                 lastBubblePosition = Pair(bubbleParams.x, bubbleParams.y)
-                Log.d(TAG, "Saved bubble position: x=${lastBubblePosition?.first}, y=${lastBubblePosition?.second}")
+                Log.d(
+                    TAG,
+                    "Saved bubble position: x=${lastBubblePosition?.first}, y=${lastBubblePosition?.second}"
+                )
 
                 chatWindowParams?.let { chatParams ->
                     chatParams.y = statusBarHeight + 80
                     chatParams.height = if (window.height > 0) window.height else chatParams.height
-                    chatParams.flags = chatParams.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                    chatParams.flags =
+                        chatParams.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
                     windowManager.updateViewLayout(window, chatParams)
 
                     bubbleButton.measure(
-                        View.MeasureSpec.makeMeasureSpec(bubbleParams.width, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(bubbleParams.height, View.MeasureSpec.EXACTLY)
+                        View.MeasureSpec.makeMeasureSpec(
+                            bubbleParams.width,
+                            View.MeasureSpec.EXACTLY
+                        ),
+                        View.MeasureSpec.makeMeasureSpec(
+                            bubbleParams.height,
+                            View.MeasureSpec.EXACTLY
+                        )
                     )
 
                     val location = IntArray(2)
@@ -1055,7 +1203,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     // Fallback nếu không có vị trí trước đó
                     bubbleParams.x = screenWidth - newSize - 16
                     bubbleParams.y = statusBarHeight + 300
-                    Log.w(TAG, "No saved position, using default: x=${bubbleParams.x}, y=${bubbleParams.y}")
+                    Log.w(
+                        TAG,
+                        "No saved position, using default: x=${bubbleParams.x}, y=${bubbleParams.y}"
+                    )
                 }
                 windowManager.updateViewLayout(bubbleButton, bubbleParams)
 
@@ -1069,7 +1220,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 }
 
                 chatWindowParams?.let { chatParams ->
-                    chatParams.flags = chatParams.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    chatParams.flags =
+                        chatParams.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                     windowManager.updateViewLayout(window, chatParams)
                 }
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -1120,7 +1272,13 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 clipToOutline = true
                 outlineProvider = object : ViewOutlineProvider() {
                     override fun getOutline(view: View, outline: Outline) {
-                        outline.setRoundRect(0, 0, view.width, view.height, 16f * resources.displayMetrics.density)
+                        outline.setRoundRect(
+                            0,
+                            0,
+                            view.width,
+                            view.height,
+                            16f * resources.displayMetrics.density
+                        )
                     }
                 }
                 isFocusable = true
@@ -1162,7 +1320,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             chatWindow?.viewTreeObserver?.addOnGlobalLayoutListener {
                 val rect = android.graphics.Rect()
                 chatWindow?.getWindowVisibleDisplayFrame(rect)
-                val keyboardHeight = if (rect.bottom < screenHeight) screenHeight - rect.bottom else 0
+                val keyboardHeight =
+                    if (rect.bottom < screenHeight) screenHeight - rect.bottom else 0
                 chatWindowParams?.let { params ->
                     if (keyboardHeight > screenHeight * 0.15) {
                         params.height = chatWindowHeight - keyboardHeight
@@ -1185,10 +1344,17 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                             window.getLocationOnScreen(location)
                             val chatWindowTop = location[1]
 
-                            val bubbleParams = bubbleButton.layoutParams as WindowManager.LayoutParams
+                            val bubbleParams =
+                                bubbleButton.layoutParams as WindowManager.LayoutParams
                             bubbleButton.measure(
-                                View.MeasureSpec.makeMeasureSpec(bubbleParams.width, View.MeasureSpec.EXACTLY),
-                                View.MeasureSpec.makeMeasureSpec(bubbleParams.height, View.MeasureSpec.EXACTLY)
+                                View.MeasureSpec.makeMeasureSpec(
+                                    bubbleParams.width,
+                                    View.MeasureSpec.EXACTLY
+                                ),
+                                View.MeasureSpec.makeMeasureSpec(
+                                    bubbleParams.height,
+                                    View.MeasureSpec.EXACTLY
+                                )
                             )
                             bubbleParams.x = (screenWidth - bubbleButton.measuredWidth) / 2
                             bubbleParams.y = chatWindowTop - bubbleButton.measuredHeight - 8
@@ -1222,7 +1388,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 if (isBound && commandService != null) {
                     commandService?.processCommand(command)
                 } else {
-                    val commandIntent = Intent(this@FloatingWindowService, CommandService::class.java)
+                    val commandIntent =
+                        Intent(this@FloatingWindowService, CommandService::class.java)
                     commandIntent.action = "COMMAND_DIRECT"
                     commandIntent.putExtra("command", command)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -1242,7 +1409,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         stopRecordButton?.let { button ->
             val shouldShow = mediaProjection != null && chatWindow?.visibility == View.VISIBLE
             button.visibility = if (shouldShow) View.VISIBLE else View.GONE
-            Log.d(TAG, "Updating stop record button visibility: isCapturing=$isCapturing, chatWindowVisible=${chatWindow?.visibility == View.VISIBLE}, visibility=${button.visibility}")
+            Log.d(
+                TAG,
+                "Updating stop record button visibility: isCapturing=$isCapturing, chatWindowVisible=${chatWindow?.visibility == View.VISIBLE}, visibility=${button.visibility}"
+            )
             if (shouldShow && button.visibility != View.VISIBLE) {
                 Log.w(TAG, "Force updating visibility to VISIBLE due to mismatch")
                 button.visibility = View.VISIBLE

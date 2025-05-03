@@ -44,7 +44,10 @@
         <activity
             android:name=".ScreenCaptureActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:exported="false" />
+            android:exported="false"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
 
         <activity
             android:name=".SelectSheetActivity"
