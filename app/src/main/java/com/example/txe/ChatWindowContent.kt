@@ -27,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -43,7 +45,8 @@ import java.util.Locale
 fun ChatWindowContent(
     messages: MutableList<Message>,
     onMinimize: () -> Unit,
-    onSendCommand: (String) -> Unit
+    onSendCommand: (String) -> Unit,
+    isChatVisible: Boolean = false // Thêm tham số để biết khi nào khung chat hiển thị
 ) {
     val context = LocalContext.current
     val textToSpeech = remember {
@@ -58,6 +61,14 @@ fun ChatWindowContent(
     val coroutineScope = rememberCoroutineScope()
     val keyboardHeight = WindowInsets.ime.getBottom(LocalDensity.current)
     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+    val focusRequester = remember { FocusRequester() } // Tạo FocusRequester
+
+    // Yêu cầu focus khi khung chat hiển thị
+    LaunchedEffect(isChatVisible) {
+        if (isChatVisible) {
+            focusRequester.requestFocus() // Yêu cầu focus vào ô nhập liệu
+        }
+    }
 
     LaunchedEffect(messages.size, keyboardHeight) {
         coroutineScope.launch {
@@ -73,12 +84,11 @@ fun ChatWindowContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White, shape = RoundedCornerShape(16.dp)) // Changed to white
+            .background(Color.White, shape = RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .padding(top = 16.dp, bottom = 8.dp, start = 4.dp, end = 4.dp)
             .imePadding()
     ) {
-
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -108,7 +118,8 @@ fun ChatWindowContent(
                 onValueChange = { inputText = it },
                 modifier = Modifier
                     .weight(1f)
-                    .background(Color.White, RoundedCornerShape(20.dp)),
+                    .background(Color.White, RoundedCornerShape(20.dp))
+                    .focusRequester(focusRequester), // Gắn FocusRequester vào TextField
                 shape = RoundedCornerShape(20.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(
@@ -165,47 +176,56 @@ fun MessageItem(
         horizontalArrangement = if (message.isUserMessage) Arrangement.End else Arrangement.Start
     ) {
         Column(
-            horizontalAlignment = if (message.isUserMessage) Alignment.End else Alignment.Start
+            modifier = Modifier
+                .fillMaxWidth(0.75f) // Giới hạn chiều rộng tối đa của toàn bộ tin nhắn là 75%
+                .wrapContentWidth(if (message.isUserMessage) Alignment.End else Alignment.Start) // Căn chỉnh sát mép phải hoặc trái
         ) {
             Box(
                 modifier = Modifier
+                    .wrapContentWidth() // Phần nền chỉ rộng vừa đủ với nội dung
                     .background(
-                        if (message.isUserMessage) Color(0xFF0084FF) else Color(0xFFE4E6EB), // Gray background for system messages
+                        if (message.isUserMessage) Color(0xFF0084FF) else Color(0xFFE4E6EB),
                         shape = RoundedCornerShape(12.dp)
                     )
-                    .padding(8.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp) // Tăng padding để giống Messenger
             ) {
-                Column {
-                    // Hiển thị ảnh nếu có
+                Column(
+                    modifier = Modifier
+                        .wrapContentWidth() // Column chỉ rộng vừa đủ với nội dung
+                ) {
                     if (message.imagePath.isNotEmpty()) {
-//                        Log.d("ChatWindowContent", "Loading image: ${message.imagePath}")
                         Image(
                             painter = rememberAsyncImagePainter(File(message.imagePath)),
                             contentDescription = "Khu vực được chụp",
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .fillMaxWidth() // Hình ảnh sẽ chiếm toàn bộ chiều rộng của Column (đã được giới hạn bởi Row)
                                 .height(200.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .padding(bottom = 8.dp)
+                                .padding(bottom = 4.dp)
                         )
                     }
-                    // Hiển thị userMessage nếu có (cho tin nhắn người dùng)
                     if (message.userMessage.isNotEmpty()) {
                         Text(
-                            text = message.userMessage,
+                            text = message.userMessage.replace("\n", " ").trim(),
                             color = Color.White,
                             fontSize = 16.sp,
-                            modifier = Modifier.padding(bottom = 4.dp)
+                            softWrap = true,
+                            modifier = Modifier
+                                .wrapContentWidth() // Text chỉ rộng vừa đủ với nội dung
+                                .padding(bottom = if (message.text.isNotEmpty()) 4.dp else 0.dp)
                         )
                     }
-                    // Hiển thị text (kết quả dịch hoặc thông báo)
-                    Text(
-                        text = message.text,
-                        color = Color.Black,
-                        fontSize = 16.sp,
-                        modifier = Modifier.padding(end = if (message.speakerInfo != null) 8.dp else 0.dp)
-                    )
-                    // Nút phát âm
+                    if (message.text.isNotEmpty()) {
+                        Text(
+                            text = message.text.replace("\n", " ").trim(),
+                            color = if (message.isUserMessage) Color.White else Color.Black,
+                            fontSize = 16.sp,
+                            softWrap = true,
+                            modifier = Modifier
+                                .wrapContentWidth() // Text chỉ rộng vừa đủ với nội dung
+                                .padding(end = if (message.speakerInfo != null) 8.dp else 0.dp)
+                        )
+                    }
                     if (message.speakerInfo != null && !message.isUserMessage) {
                         IconButton(onClick = {
                             val (word, language) = message.speakerInfo
@@ -215,13 +235,12 @@ fun MessageItem(
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Play pronunciation",
-                                tint = Color.White // White to match text color
+                                tint = Color.White
                             )
                         }
                     }
                 }
             }
-            // Nút copy
             if (hasCopyableContent) {
                 Icon(
                     imageVector = Icons.Default.ContentCopy,
@@ -231,6 +250,7 @@ fun MessageItem(
                         .size(20.dp)
                         .alpha(0.7f)
                         .padding(top = 4.dp)
+                        .align(if (message.isUserMessage) Alignment.End else Alignment.Start) // Căn chỉnh icon copy sát mép
                         .clickable {
                             val textToCopy = when {
                                 message.userMessage.isNotEmpty() -> message.userMessage
@@ -243,7 +263,6 @@ fun MessageItem(
                                 val clip = ClipData.newPlainText("Message", textToCopy)
                                 clipboard.setPrimaryClip(clip)
                                 Toast.makeText(context, "Đã sao chép", Toast.LENGTH_SHORT).show()
-                                // Hiệu ứng rung nhẹ
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     vibrator.vibrate(android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
                                 } else {

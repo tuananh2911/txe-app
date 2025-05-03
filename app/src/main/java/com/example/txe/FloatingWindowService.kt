@@ -342,17 +342,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
 
-    @Composable
-    fun TouchOverlayContent(onOutsideClick: () -> Unit) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Transparent) // Lớp phủ trong suốt
-        ) {
-            // Không cần nội dung hiển thị, chỉ cần lắng nghe sự kiện chạm
-        }
-    }
-
     private fun captureSelectedArea() {
         try {
             bubbleButton.visibility = View.GONE
@@ -638,168 +627,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         } catch (e: Exception) {
             Log.e(TAG, "Error in setupDimOverlay", e)
             Toast.makeText(this, "Lỗi khởi tạo lớp mờ: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun setupTouchOverlay() {
-        try {
-            val (screenWidth, screenHeight) = getFullScreenMetrics()
-            if (screenWidth <= 0 || screenHeight <= 0) {
-                Log.e(TAG, "Kích thước màn hình không hợp lệ: width=$screenWidth, height=$screenHeight")
-                Toast.makeText(this, "Lỗi: Kích thước màn hình không hợp lệ", Toast.LENGTH_LONG).show()
-                return
-            }
-
-            touchOverlay = ComposeView(this).apply {
-                setViewTreeLifecycleOwner(this@FloatingWindowService)
-                setViewTreeSavedStateRegistryOwner(this@FloatingWindowService)
-                setContent {
-                    MaterialTheme {
-                        TouchOverlayContent(
-                            onOutsideClick = {
-                                Log.d(TAG, "Touch outside detected, closing chat window")
-                                toggleChatWindow()
-                            }
-                        )
-                    }
-                }
-            }
-
-            touchOverlayParams = WindowManager.LayoutParams(
-                screenWidth,
-                screenHeight,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = 0
-                y = 0
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-            }
-
-            touchOverlay?.setOnTouchListener { _, event ->
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        val touchX = event.rawX
-                        val touchY = event.rawY
-                        Log.d(TAG, "Touch down on touchOverlay at x=$touchX, y=$touchY")
-
-                        // Kiểm tra khu vực của chatWindow
-                        chatWindow?.let { window ->
-                            if (window.visibility == View.VISIBLE) {
-                                val location = IntArray(2)
-                                window.getLocationOnScreen(location)
-                                val chatWindowX = location[0].toFloat()
-                                val chatWindowY = location[1].toFloat()
-                                val chatWindowWidth = window.width.toFloat()
-                                val chatWindowHeight = window.height.toFloat()
-
-                                val isTouchInsideChatWindow = touchX >= chatWindowX &&
-                                        touchX <= chatWindowX + chatWindowWidth &&
-                                        touchY >= chatWindowY &&
-                                        touchY <= chatWindowY + chatWindowHeight
-
-                                if (isTouchInsideChatWindow) {
-                                    Log.d(TAG, "Touch is inside chat window, ignoring event")
-                                    return@setOnTouchListener false // Bỏ qua sự kiện, để chatWindow xử lý
-                                }
-                            }
-                        }
-
-                        // Kiểm tra khu vực của bubbleButton
-                        bubbleButton?.let { button ->
-                            if (button.visibility == View.VISIBLE) {
-                                val location = IntArray(2)
-                                button.getLocationOnScreen(location)
-                                val bubbleX = location[0].toFloat()
-                                val bubbleY = location[1].toFloat()
-                                val bubbleWidth = button.width.toFloat()
-                                val bubbleHeight = button.height.toFloat()
-
-                                val isTouchInsideBubble = touchX >= bubbleX &&
-                                        touchX <= bubbleX + bubbleWidth &&
-                                        touchY >= bubbleY &&
-                                        touchY <= bubbleY + bubbleHeight
-
-                                if (isTouchInsideBubble) {
-                                    Log.d(TAG, "Touch is inside bubble button, ignoring event")
-                                    return@setOnTouchListener false // Bỏ qua sự kiện, để bubbleButton xử lý
-                                }
-                            }
-                        }
-
-                        true // Xử lý sự kiện nếu chạm ngoài chatWindow và bubbleButton
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        val touchX = event.rawX
-                        val touchY = event.rawY
-                        Log.d(TAG, "Touch up on touchOverlay at x=$touchX, y=$touchY")
-
-                        // Kiểm tra lại khi thả tay
-                        chatWindow?.let { window ->
-                            if (window.visibility == View.VISIBLE) {
-                                val location = IntArray(2)
-                                window.getLocationOnScreen(location)
-                                val chatWindowX = location[0].toFloat()
-                                val chatWindowY = location[1].toFloat()
-                                val chatWindowWidth = window.width.toFloat()
-                                val chatWindowHeight = window.height.toFloat()
-
-                                val isTouchInsideChatWindow = touchX >= chatWindowX &&
-                                        touchX <= chatWindowX + chatWindowWidth &&
-                                        touchY >= chatWindowY &&
-                                        touchY <= chatWindowY + chatWindowHeight
-
-                                if (isTouchInsideChatWindow) {
-                                    Log.d(TAG, "Touch up inside chat window, ignoring event")
-                                    return@setOnTouchListener false
-                                }
-                            }
-                        }
-
-                        // Kiểm tra lại khu vực của bubbleButton
-                        bubbleButton?.let { button ->
-                            if (button.visibility == View.VISIBLE) {
-                                val location = IntArray(2)
-                                button.getLocationOnScreen(location)
-                                val bubbleX = location[0].toFloat()
-                                val bubbleY = location[1].toFloat()
-                                val bubbleWidth = button.width.toFloat()
-                                val bubbleHeight = button.height.toFloat()
-
-                                val isTouchInsideBubble = touchX >= bubbleX &&
-                                        touchX <= bubbleX + bubbleWidth &&
-                                        touchY >= bubbleY &&
-                                        touchY <= bubbleY + bubbleHeight
-
-                                if (isTouchInsideBubble) {
-                                    Log.d(TAG, "Touch up inside bubble button, ignoring event")
-                                    return@setOnTouchListener false
-                                }
-                            }
-                        }
-
-                        Log.d(TAG, "Touch up outside chat window and bubble button, closing chat window")
-                        toggleChatWindow()
-                        true
-                    }
-                    else -> false
-                }
-            }
-
-            touchOverlay?.visibility = View.GONE
-            windowManager.addView(touchOverlay, touchOverlayParams)
-            Log.d(TAG, "Touch overlay added to window, touchOverlay=$touchOverlay")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in setupTouchOverlay", e)
-            Toast.makeText(this, "Lỗi khởi tạo lớp phủ chạm: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1130,10 +957,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             bubbleParams.width = newSize
             bubbleParams.height = newSize
 
-            // Hiển thị hoặc ẩn touchOverlay dựa trên trạng thái khung chat
-            touchOverlay?.visibility = if (isOpening) View.VISIBLE else View.GONE
-            Log.d(TAG, "Touch overlay visibility updated: ${touchOverlay?.visibility}")
-
             if (isOpening) {
                 chatWindowParams?.let { chatParams ->
                     chatParams.y = statusBarHeight + 80
@@ -1162,7 +985,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     window.isFocusable = true
                     window.isFocusableInTouchMode = true
                     window.requestFocus()
-                    // Hiển thị bàn phím ảo
                     val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                     Handler(Looper.getMainLooper()).postDelayed({
                         imm.showSoftInput(window, InputMethodManager.SHOW_IMPLICIT)
@@ -1194,6 +1016,18 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     )
                 }
             }
+
+            // Cập nhật nội dung của chatWindow để truyền isChatVisible
+            (window as ComposeView).setContent {
+                MaterialTheme {
+                    ChatWindowContent(
+                        messages = messages,
+                        onMinimize = { chatWindow?.visibility = View.GONE },
+                        onSendCommand = { command -> handleCommand(command) },
+                        isChatVisible = isOpening // Truyền trạng thái hiển thị
+                    )
+                }
+            }
         } ?: Log.w(TAG, "Chat window is null in toggleChatWindow")
     }
 
@@ -1208,7 +1042,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         ChatWindowContent(
                             messages = messages,
                             onMinimize = { chatWindow?.visibility = View.GONE },
-                            onSendCommand = { command -> handleCommand(command) }
+                            onSendCommand = { command -> handleCommand(command) },
+                            isChatVisible = visibility == View.VISIBLE // Truyền trạng thái hiển thị
                         )
                     }
                 }
@@ -1244,7 +1079,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     toggleChatWindow()
                     true
                 } else {
-                    false // Để các sự kiện chạm khác được xử lý bởi chatWindow
+                    false
                 }
             }
             chatWindow = composeView
@@ -1290,7 +1125,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                             bubbleParams.y = maxOf(statusBarHeight, bubbleParams.y)
                             windowManager.updateViewLayout(bubbleButton, bubbleParams)
 
-                            Log.d(TAG, "KeyboardHeight: $keyboardHeight, WindowHeight: ${params.height}, Y: ${params.y}, Chat window top: $chatWindowTop, Bubble y: ${bubbleParams.y}")
+//                            Log.d(TAG, "KeyboardHeight: $keyboardHeight, WindowHeight: ${params.height}, Y: ${params.y}, Chat window top: $chatWindowTop, Bubble y: ${bubbleParams.y}")
                         }
                     }
                 }

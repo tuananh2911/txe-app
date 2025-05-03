@@ -443,6 +443,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isOverlayEnabled = currentState?.isOverlayEnabled ?: false,
                 isFloatingWindowEnabled = currentState?.isFloatingWindowEnabled ?: false
             )
+            if (activity != null) {
+                syncFromGoogleSheets(activity)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling sign in result", e)
             _uiState.value = MainUiState.Error(e.message ?: "Failed to handle sign in result")

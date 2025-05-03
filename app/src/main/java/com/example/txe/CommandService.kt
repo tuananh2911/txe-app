@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -22,8 +23,19 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.random.Random
 
 class CommandService : Service() {
@@ -34,6 +46,9 @@ class CommandService : Service() {
     private var lastWord: String? = null
     private var gameJob: Job? = null
     private var validWords: List<String> = emptyList()
+    private val client = OkHttpClient()
+    private val mediaType = "application/json".toMediaType()
+    private lateinit var deviceId: String // Biến lưu Android ID
 
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "CommandServiceChannel"
@@ -70,6 +85,9 @@ class CommandService : Service() {
         apiService = ApiService(applicationContext)
         Log.d(TAG, "ApiService initialized")
         loadWordList()
+        // Lấy Android ID khi service được tạo
+        deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
+        Log.d(TAG, "Device ID (Android ID): $deviceId")
         try {
             val filter = IntentFilter("COMMAND_DIRECT")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -95,7 +113,8 @@ class CommandService : Service() {
                 "Command Service Channel",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
 
@@ -119,9 +138,106 @@ class CommandService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun callUserStatusApi(function: String) {
+        serviceScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    // Tạo timestamp hiện tại theo định dạng ISO 8601
+                    val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+                        .format(Date())
+                    // Tạo JSON body
+                    val body = """
+                        {
+                            "userId": "$deviceId",
+                            "function": "$function",
+                            "timestamp": "$timestamp"
+                        }
+                    """.trimIndent().toRequestBody(mediaType)
+
+                    // Tạo request
+                    val request = Request.Builder()
+                        .url("https://gigilio.vercel.app/user-status")
+                        .post(body)
+                        .addHeader("Content-Type", "application/json")
+                        .build()
+
+                    // Gọi API bất đồng bộ
+                    client.newCall(request).enqueue(object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {
+                            Log.e(TAG, "Failed to call user-status API: ${e.message}")
+                        }
+
+                        override fun onResponse(call: Call, response: Response) {
+                            if (response.isSuccessful) {
+                                Log.d(TAG, "Successfully called user-status API: ${response.body?.string()}")
+                            } else {
+                                Log.e(TAG, "User-status API failed with code: ${response.code}")
+                            }
+                            response.close()
+                        }
+                    })
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error preparing user-status API call: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun processCommand(command: String) {
         Log.d(TAG, "Processing command: $command")
         val lowerCommand = command.lowercase()
+
+        // Xác định functionName và gộp langCode (nếu có)
+        val functionName: String?
+
+        when {
+            lowerCommand.startsWith("jjthoitiet") -> {
+                functionName = "jjthoitiet"
+            }
+            lowerCommand.startsWith("jjtygia") -> {
+                functionName = "jjtygia"
+            }
+            lowerCommand == "jjamlich" -> {
+                functionName = "jjamlich"
+            }
+            lowerCommand.startsWith("jjdich") -> {
+                val stringArr = lowerCommand.split(" ")
+                val afterPrefix = lowerCommand.substringAfter("jjdich")
+                val langCode = if (!stringArr[0].equals("jjdich")) {
+                    afterPrefix.take(2)
+                } else {
+                    "en" // Mặc định nếu không chỉ định
+                }
+                functionName = "jjdich-$langCode"
+            }
+            lowerCommand.startsWith("jjnguphap") -> {
+                functionName = "jjnguphap"
+            }
+            lowerCommand.startsWith("jjtratu") -> {
+                val stringArr = lowerCommand.split(" ")
+                val afterPrefix = lowerCommand.substringAfter("jjtratu").trim()
+                val langCode = if (!stringArr[0].equals("jjtratu")) {
+                    afterPrefix.take(2)
+                } else {
+                    "en" // Mặc định nếu không chỉ định
+                }
+                functionName = "jjtratu-$langCode"
+            }
+            lowerCommand.startsWith("jjphatnguoi") -> {
+                functionName = "jjphatnguoi"
+            }
+            lowerCommand.startsWith("jjnoitu") -> {
+                functionName = "jjnoitu"
+            }
+            else -> {
+                functionName = null
+            }
+        }
+
+        if (functionName != null) {
+            callUserStatusApi(functionName)
+        }
+
         serviceScope.launch {
             try {
                 val result = when {
@@ -129,22 +245,32 @@ class CommandService : Service() {
                         Log.d(TAG, "Processing weather command")
                         apiService?.getWeatherInfo() ?: "Không thể lấy thông tin thời tiết"
                     }
+
                     !isGameActive && lowerCommand.startsWith("jjtygia") -> {
                         Log.d(TAG, "Processing exchange rate command")
                         val currency = lowerCommand.substringAfter("jjtygia").trim()
                         Log.d(TAG, "Getting exchange rate for currency: $currency")
                         apiService?.getExchangeRate(currency) ?: "Không thể lấy tỷ giá"
                     }
+
                     !isGameActive && lowerCommand == "jjamlich" -> {
                         apiService?.getLunarDate() ?: "Lỗi khởi tạo service"
                     }
+
                     !isGameActive && lowerCommand.startsWith("jjdich") -> {
+                        val stringArr = lowerCommand.split(" ")
+                        var langToTrans = "en"
                         val afterPrefix = lowerCommand.substringAfter("jjdich")
                         if (afterPrefix.isEmpty()) {
                             "Vui lòng nhập đúng cú pháp: jjdich{ngôn ngữ đích} <câu cần dịch> \nVí dụ: jjdichen tôi là ai"
                         } else {
-                            val langToTrans = afterPrefix.take(2)
-                            val text = afterPrefix.drop(2).trim()
+                            var text = ""
+                            if (!stringArr[0].equals("jjdich")) {
+                                langToTrans = afterPrefix.take(2)
+                                text = afterPrefix.drop(2).trim()
+                            } else {
+                                text = afterPrefix.trim()
+                            }
                             if (text.isEmpty()) {
                                 "Vui lòng nhập câu cần dịch sau ngôn ngữ đích, ví dụ: jjdich$langToTrans tôi là ai"
                             } else {
@@ -154,6 +280,7 @@ class CommandService : Service() {
                             }
                         }
                     }
+
                     !isGameActive && lowerCommand.startsWith("jjnguphap") -> {
                         val afterPrefix = lowerCommand.substringAfter("jjnguphap")
                         if (afterPrefix.isEmpty()) {
@@ -170,18 +297,27 @@ class CommandService : Service() {
                             }
                         }
                     }
+
                     !isGameActive && lowerCommand.startsWith("jjtratu") -> {
+                        val stringArr = lowerCommand.split(" ")
+                        var langToSearch = "en"
                         val afterPrefix = lowerCommand.substringAfter("jjtratu").trim()
                         if (afterPrefix.isEmpty()) {
                             "Vui lòng nhập đúng cú pháp: jjtratu<ngôn ngữ> <từ cần tra>\nVí dụ: jjtratuen hello"
                         } else {
-                            val langToSearch = afterPrefix.take(2)
-                            val text = afterPrefix.drop(2).trim()
+                            var text = ""
+                            if (!stringArr[0].equals("jjtratu")) {
+                                langToSearch = afterPrefix.take(2)
+                                text = afterPrefix.drop(2).trim()
+                            } else {
+                                text = afterPrefix.trim()
+                            }
                             if (text.isEmpty()) {
                                 "Vui lòng nhập từ cần tra, ví dụ: jjtratu$langToSearch hello"
                             } else {
                                 Log.d(TAG, "Text to search: $text")
-                                val prompt = """Translate the following word '$text' into the language with the code '$langToSearch', then look up the translated word.
+                                val prompt =
+                                    """Translate the following word '$text' into the language with the code '$langToSearch', then look up the translated word.
                 Use this JSON schema:
                 WordEntry = {
                     'pronunciation': str,
@@ -201,7 +337,8 @@ class CommandService : Service() {
                                         val pronunciation = jsonObject.getString("pronunciation")
                                         val usage = jsonObject.getString("usage")
 
-                                        val translationMessage = "Translation: $translation [SPEAKER:$translation:$langToSearch]"
+                                        val translationMessage =
+                                            "Translation: $translation [SPEAKER:$translation:$langToSearch]"
                                         sendBroadcast(Intent("COMMAND_RESULT").apply {
                                             putExtra("command_result", translationMessage)
                                             setPackage("com.example.txe")
@@ -228,6 +365,7 @@ class CommandService : Service() {
                             }
                         }
                     }
+
                     !isGameActive && lowerCommand.startsWith("jjphatnguoi") -> {
                         val parts = lowerCommand.split(" ")
                         if (parts.size > 1) {
@@ -237,6 +375,7 @@ class CommandService : Service() {
                             "Vui lòng nhập biển số xe. Ví dụ: jjphatnguoi 30a-12345"
                         }
                     }
+
                     lowerCommand.startsWith("jjnoitu") -> {
                         if (lowerCommand == "jjnoitu end") {
                             isGameActive = false
@@ -245,9 +384,11 @@ class CommandService : Service() {
                             handleWordChainGame(lowerCommand)
                         }
                     }
+
                     isGameActive -> {
                         handleWordChainResponse(lowerCommand)
                     }
+
                     else -> "Lệnh không hợp lệ"
                 }
                 Log.d(TAG, "Command result: $result")
@@ -378,17 +519,6 @@ class CommandService : Service() {
         isGameActive = false
         lastWord = null
         gameJob?.cancel()
-    }
-
-    private suspend fun showToast(message: String) {
-        withContext(Dispatchers.Main) {
-            try {
-                Log.d(TAG, "Showing toast: $message")
-                Toast.makeText(this@CommandService, message, Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error showing toast", e)
-            }
-        }
     }
 
     override fun onDestroy() {

@@ -24,16 +24,10 @@ class ApiService(private val context: Context) {
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private val queue: RequestQueue by lazy { Volley.newRequestQueue(context) }
 
-    companion object {
-        private const val OPENROUTER_API_KEY = "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" // Thay bằng API key của bạn
-        private const val SITE_URL = "https://openrouter.ai/api/v1"                // Thay bằng URL của bạn
-        private const val SITE_NAME = "<YOUR_SITE_NAME>"             // Thay bằng tên site của bạn
-    }
-
     suspend fun chatGeminiApi(prompt: String): String? {
         val generativeModel = GenerativeModel(
             // The Gemini 1.5 models are versatile and work with both text-only and multimodal prompts
-            modelName = "gemini-2.0-flash",
+            modelName = "gemini-1.5-flash",
             // Access your API key as a Build Configuration variable (see "Set up your API key" above)
             apiKey = BuildConfig.API_KEY
         )
