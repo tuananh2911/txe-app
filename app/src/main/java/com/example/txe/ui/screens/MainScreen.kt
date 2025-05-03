@@ -425,25 +425,6 @@ fun SettingsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Show Overlay",
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Switch(
-                checked = isOverlayEnabled,
-                onCheckedChange = { onOverlayToggle(it) }
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
                 text = "Show Floating Chat",
                 style = MaterialTheme.typography.bodyLarge
             )
