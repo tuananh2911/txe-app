@@ -123,18 +123,26 @@ class DictionaryManager(private val context: Context) {
     suspend fun syncFromGoogleSheets(expanders: List<Expander>) = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Starting to sync ${expanders.size} expanders from Google Sheets")
-            
-            // Clear existing words
-            Log.d(TAG, "Clearing existing words from system dictionary")
-            context.contentResolver.delete(UserDictionary.Words.CONTENT_URI, null, null)
-            
-            Log.d(TAG, "Clearing existing words from local storage")
-            prefs.edit().clear().apply()
 
-            // Add new words
+            // Get existing shortcuts to determine which ones to keep or update
+            val existingWords = getAllWords()
+            val existingShortcuts = existingWords.map { it.shortcut }.toSet()
+            Log.d(TAG, "Found ${existingWords.size} existing words in dictionary")
+
+            // Process each expander from Google Sheets
             expanders.forEachIndexed { index, expander ->
-                Log.d(TAG, "Adding expander ${index + 1}/${expanders.size}: ${expander.shortcut} -> ${expander.value}")
+                Log.d(TAG, "Processing expander ${index + 1}/${expanders.size}: ${expander.shortcut} -> ${expander.value}")
+                // Add or update the word (addWord already handles removing existing shortcut)
                 addWord(expander.shortcut, expander.value)
+            }
+
+            // Remove shortcuts that are in local dictionary but not in Google Sheets
+            val sheetShortcuts = expanders.map { it.shortcut }.toSet()
+            existingShortcuts.forEach { shortcut ->
+                if (!sheetShortcuts.contains(shortcut)) {
+                    Log.d(TAG, "Removing shortcut not in Google Sheets: $shortcut")
+                    removeWord(shortcut)
+                }
             }
 
             Log.d(TAG, "Successfully synced ${expanders.size} words from Google Sheets")
