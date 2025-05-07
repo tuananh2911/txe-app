@@ -4,11 +4,13 @@ import android.content.Intent
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -26,18 +28,29 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.txe.MainActivity
 import com.example.txe.MainViewModel
 import com.example.txe.MainUiState
 import com.example.txe.Expander
+import com.example.txe.R
 import com.example.txe.SheetInfo
+import com.google.accompanist.swiperefresh.SwipeRefresh
+import com.google.accompanist.swiperefresh.SwipeRefreshIndicator
+import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,9 +76,8 @@ fun MainScreen(
         viewModel.onPermissionResult()
     }
 
-    // Làm mới trạng thái khi chuyển sang tab Settings
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 1) { // Tab Settings
+        if (selectedTab == 1) {
             Log.d("MainScreen", "Refreshing system states for Settings tab")
             viewModel.refreshSystemStates()
         }
@@ -117,7 +129,20 @@ fun MainScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("GiGi") },
+                title = {
+                    Box(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_logo_in_app),
+                            contentDescription = "App Logo",
+                            modifier = Modifier
+                                .size(100.dp) // Kích thước hợp lý hơn
+                                .align(Alignment.CenterStart) // Căn chỉnh về phía bên trái
+                                .padding(4.dp)
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = onSyncClick) {
                         Icon(
@@ -158,6 +183,7 @@ fun MainScreen(
                         onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
                         onAddExpander = { viewModel.addExpander() },
                         onDeleteExpander = { viewModel.deleteExpander(it) },
+                        onRefresh = { viewModel.loadExpanders() }, // Thêm hàm làm mới
                         modifier = Modifier.padding(innerPadding)
                     )
                     1 -> SettingsTab(
@@ -243,6 +269,7 @@ fun BottomNavigationBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShortcutTab(
     expanders: List<Expander>,
@@ -254,81 +281,207 @@ fun ShortcutTab(
     onSearchQueryChange: (String) -> Unit,
     onAddExpander: () -> Unit,
     onDeleteExpander: (Expander) -> Unit,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { newQuery ->
-                Log.d("ShortcutTab", "Search input: $newQuery")
-                onSearchQueryChange(newQuery)
+    var isRefreshing by remember { mutableStateOf(false) }
+    var hasAttemptedRefresh by remember { mutableStateOf(false) }
+
+    // Hiển thị một full-screen loader khi đang làm mới
+    if (isRefreshing) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(50.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Đang đồng bộ shortcuts...",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+        }
+    } else {
+        // Sử dụng SwipeRefresh với cấu hình tùy chỉnh
+        SwipeRefresh(
+            state = rememberSwipeRefreshState(isRefreshing = false), // Luôn tắt trạng thái isRefreshing mặc định
+            onRefresh = {
+                isRefreshing = true
+                hasAttemptedRefresh = true
+                onSearchQueryChange("") // Xóa search query
+                onRefresh() // Gọi hàm làm mới
+
+                // Giả lập thời gian tải để người dùng có thể thấy trạng thái loading
+                MainScope().launch {
+                    delay(1500)
+                    isRefreshing = false
+                }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            label = { Text("Search Shortcuts") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = {
-                        Log.d("ShortcutTab", "Clearing search query")
-                        onSearchQueryChange("")
-                    }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear Search")
+            indicator = { state, refreshTrigger ->
+                // Tùy chỉnh indicator để nó hiển thị rõ ràng hơn
+                SwipeRefreshIndicator(
+                    state = state,
+                    refreshTriggerDistance = refreshTrigger,
+                    backgroundColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    scale = true
+                )
+            }
+        ) {
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                // Hiển thị thông báo đồng bộ nếu đã làm mới
+                if (hasAttemptedRefresh && expanders.isEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 16.dp)
+                            )
+                            Column {
+                                Text(
+                                    "Đã đồng bộ shortcuts",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    "Không tìm thấy shortcuts. Thêm shortcuts mới hoặc kéo xuống để làm mới.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
                     }
                 }
-            }
-        )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = shortcutInput,
-                onValueChange = onShortcutInputChange,
-                modifier = Modifier.weight(1f),
-                label = { Text("Shortcut") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
-            )
-            OutlinedTextField(
-                value = valueInput,
-                onValueChange = onValueInputChange,
-                modifier = Modifier.weight(2f),
-                label = { Text("Expanded Text") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
-            )
-        }
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { newQuery ->
+                        Log.d("ShortcutTab", "Search input: $newQuery")
+                        onSearchQueryChange(newQuery)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    label = { Text("Search Shortcuts") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = {
+                                Log.d("ShortcutTab", "Clearing search query")
+                                onSearchQueryChange("")
+                            }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear Search")
+                            }
+                        }
+                    }
+                )
 
-        Button(
-            onClick = onAddExpander,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp)
-        ) {
-            Text("Add Shortcut")
-        }
-
-        if (expanders.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No shortcuts found")
-            }
-        } else {
-            LazyColumn {
-                items(expanders) { expander ->
-                    ExpanderItem(
-                        expander = expander,
-                        onDelete = { onDeleteExpander(expander) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = shortcutInput,
+                        onValueChange = onShortcutInputChange,
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Shortcut") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
                     )
+                    OutlinedTextField(
+                        value = valueInput,
+                        onValueChange = onValueInputChange,
+                        modifier = Modifier.weight(2f),
+                        label = { Text("Expanded Text") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+                    )
+                }
+
+                Button(
+                    onClick = onAddExpander,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Text("Add Shortcut")
+                }
+
+                // Sử dụng LazyColumn để tận dụng scroll mượt mà
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (expanders.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillParentMaxSize()
+                                    .padding(top = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.List,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .padding(bottom = 16.dp),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    )
+                                    Text(
+                                        "Không có shortcuts",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Row(
+                                        modifier = Modifier.padding(top = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            " Kéo xuống để làm mới",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        items(expanders) { expander ->
+                            ExpanderItem(
+                                expander = expander,
+                                onDelete = { onDeleteExpander(expander) }
+                            )
+                        }
+                    }
                 }
             }
         }

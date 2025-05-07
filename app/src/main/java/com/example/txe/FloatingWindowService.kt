@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Outline
@@ -132,6 +133,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     private var screenCaptureData: Intent? = null
     private var statusBarHeight = 0
     private var lastBubblePosition: Pair<Int, Int>? = null
+    private var mediaProjectionCallback: MediaProjection.Callback? = null
+    private var isPendingCapture = false // Biến để theo dõi trạng thái chờ chụp
 
     companion object {
         private const val TAG = "FloatingWindowService"
@@ -157,47 +160,86 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
     private val commandResultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            Log.d(TAG, "Received broadcast with action: ${intent?.action}")
-            val result = intent?.getStringExtra("command_result") ?: "Không có kết quả"
-            Log.d(TAG, "Received command result: $result")
-            serviceScope.launch {
-                try {
-                    val speakerRegex = Regex("\\[SPEAKER:([^:]+):([^]]+)]")
-                    val match = speakerRegex.find(result)
-                    if (match != null) {
-                        val word = match.groupValues[1]
-                        val language = match.groupValues[2]
-                        val cleanedResult = result.replace(speakerRegex, "").trim()
-                        messages.add(Message(cleanedResult, "", "", false, Pair(word, language)))
-                    } else {
-                        messages.add(Message(result, "", "", false))
+            if (intent?.action != "SCREEN_CAPTURE_PERMISSION") {
+                Log.d(TAG, "Received broadcast with action: ${intent?.action}")
+                val result = intent?.getStringExtra("command_result") ?: "Không có kết quả"
+                Log.d(TAG, "Received command result: $result")
+                serviceScope.launch {
+                    try {
+                        val speakerRegex = Regex("\\[SPEAKER:([^:]+):([^]]+)]")
+                        val match = speakerRegex.find(result)
+                        if (match != null) {
+                            val word = match.groupValues[1]
+                            val language = match.groupValues[2]
+                            val cleanedResult = result.replace(speakerRegex, "").trim()
+                            messages.add(
+                                Message(
+                                    cleanedResult,
+                                    "",
+                                    "",
+                                    false,
+                                    Pair(word, language)
+                                )
+                            )
+                        } else {
+                            messages.add(Message(result, "", "", false))
+                        }
+                        Log.d(TAG, "System message added. Current messages size: ${messages.size}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating message", e)
                     }
-                    Log.d(TAG, "System message added. Current messages size: ${messages.size}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error updating message", e)
                 }
             }
+        }
+    }
+
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() {
+            Log.d(TAG, "MediaProjection stopped")
+            stopScreenCapture()
+            mediaProjection = null
+            isScreenCapturePermissionGranted = false
+            screenCaptureResultCode = null
+            screenCaptureData = null
+            updateStopRecordButtonVisibility()
+            Toast.makeText(
+                this@FloatingWindowService,
+                "Quyền chụp màn hình đã bị thu hồi",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
     private val screenCaptureReceiver = object : BroadcastReceiver() {
         @RequiresApi(Build.VERSION_CODES.O)
         override fun onReceive(context: Context?, intent: Intent?) {
+            Log.d(TAG, "Broadcast received with action: ${intent?.action}")
             if (intent?.action == "SCREEN_CAPTURE_PERMISSION") {
                 val resultCode = intent.getIntExtra("resultCode", Activity.RESULT_CANCELED)
                 val data = intent.getParcelableExtra<Intent>("data")
+                Log.d(
+                    TAG,
+                    "Processing SCREEN_CAPTURE_PERMISSION: resultCode=$resultCode, data=$data"
+                )
                 if (resultCode == Activity.RESULT_OK && data != null) {
                     Log.d(TAG, "Received screen capture permission")
                     val projectionManager =
                         getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     try {
+                        startForegroundService()
+                        // Đảm bảo dừng MediaProjection cũ nếu tồn tại
+                        stopScreenCapture()
                         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
                         isScreenCapturePermissionGranted = true
                         screenCaptureResultCode = resultCode
                         screenCaptureData = data
                         setupScreenCapture()
                         showDimOverlay()
-                        captureSelectedArea()
+                        if (isPendingCapture) {
+                            Log.d(TAG, "Retrying captureSelectedArea due to pending capture")
+                            captureSelectedArea()
+                            isPendingCapture = false
+                        }
                         Log.d(TAG, "Dim overlay shown and capture initiated")
                         Toast.makeText(
                             this@FloatingWindowService,
@@ -214,11 +256,15 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                                 false
                             )
                         )
+                        isScreenCapturePermissionGranted = false
+                        isPendingCapture = false
+                        hideDimOverlay()
                     }
                 } else {
                     Log.e(TAG, "Screen capture permission denied")
                     messages.add(Message("Lỗi: Quyền chụp màn hình bị từ chối", "", "", false))
                     isScreenCapturePermissionGranted = false
+                    isPendingCapture = false
                     hideDimOverlay()
                 }
             }
@@ -232,8 +278,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         super.onCreate()
         Log.d(TAG, "Service created")
         try {
-            startForegroundService()
-
             if (!Settings.canDrawOverlays(this)) {
                 Log.e(TAG, "Quyền overlay chưa được cấp")
                 Toast.makeText(
@@ -267,8 +311,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 addAction("SCREEN_CAPTURE_PERMISSION")
             }
 
-            registerReceiver(commandResultReceiver, filter, RECEIVER_NOT_EXPORTED)
-            registerReceiver(screenCaptureReceiver, filter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(commandResultReceiver, filter, RECEIVER_EXPORTED)
+            registerReceiver(screenCaptureReceiver, filter, RECEIVER_EXPORTED)
 
             isReceiverRegistered = true
             Log.d(TAG, "Registered receivers")
@@ -283,6 +327,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun startForegroundService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -301,7 +346,11 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        startForeground(
+            NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        )
         Log.d(TAG, "Foreground service started")
     }
 
@@ -311,13 +360,23 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             val width = metrics.first
             val height = metrics.second
             val density = resources.displayMetrics.densityDpi
-
+            virtualDisplay?.release()
+            imageReader?.close()
+            virtualDisplay = null
+            imageReader = null
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+
+            // Đăng ký callback cho MediaProjection
+            mediaProjectionCallback = projectionCallback
+            mediaProjection?.registerCallback(mediaProjectionCallback!!, null)
+
             virtualDisplay = mediaProjection?.createVirtualDisplay(
                 "ScreenCapture",
                 width, height, density,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface, null, null
+                imageReader?.surface,
+                null, // Có thể thêm VirtualDisplay.Callback nếu cần
+                null
             )
             isCapturing = true
             updateStopRecordButtonVisibility()
@@ -325,7 +384,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         } catch (e: Exception) {
             Log.e(TAG, "Error setting up screen capture", e)
             messages.add(Message("Lỗi khởi tạo chụp màn hình: ${e.message}", "", "", false))
-            isScreenCapturePermissionGranted = false
+            stopScreenCapture()
         }
     }
 
@@ -361,8 +420,9 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun captureSelectedArea() {
-        if (!isScreenCapturePermissionGranted) {
+        if (!isScreenCapturePermissionGranted || virtualDisplay == null) {
             Log.d(TAG, "Requesting screen capture permission before capturing")
+            isPendingCapture = true
             ScreenCaptureActivity.start(this)
             return
         }
@@ -440,8 +500,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     }
                 }
 
-                stopScreenCapture()
-            }, 100)
+//                stopScreenCapture()
+            }, 200) // Tăng delay để đảm bảo overlay ẩn hoàn toàn
         } catch (e: Exception) {
             Log.e(TAG, "Error capturing selected area", e)
             messages.add(Message("Lỗi chụp ảnh: ${e.message}", "", "", false))
@@ -504,6 +564,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         try {
             virtualDisplay?.release()
             imageReader?.close()
+            mediaProjectionCallback?.let {
+                mediaProjection?.unregisterCallback(it)
+                mediaProjectionCallback = null
+            }
             virtualDisplay = null
             imageReader = null
             isCapturing = false
@@ -518,6 +582,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         try {
             virtualDisplay?.release()
             imageReader?.close()
+            mediaProjectionCallback?.let {
+                mediaProjection?.unregisterCallback(it)
+                mediaProjectionCallback = null
+            }
             mediaProjection?.stop()
             virtualDisplay = null
             imageReader = null
@@ -708,9 +776,11 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun showDimOverlay() {
         if (mediaProjection == null && screenCaptureResultCode != null && screenCaptureData != null) {
             try {
+                startForegroundService()
                 val projectionManager =
                     getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 mediaProjection = projectionManager.getMediaProjection(
@@ -729,24 +799,19 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     )
                 )
                 isScreenCapturePermissionGranted = false
+                isPendingCapture = false
+                return
             }
         }
-        if (mediaProjection != null) {
+        if (mediaProjection != null && virtualDisplay == null) {
             setupScreenCapture()
-            dimOverlay?.visibility = View.VISIBLE
-            isSelectionRectVisible = true
-            updateDimOverlay()
-            updateStopRecordButtonVisibility()
-            Log.d(TAG, "Dim overlay shown with capture ready")
-            Toast.makeText(this, "Lớp mờ được hiển thị, nhấn đúp để chụp", Toast.LENGTH_SHORT).show()
-        } else {
-            Log.w(TAG, "MediaProjection is null, showing dim overlay without capture")
-            dimOverlay?.visibility = View.VISIBLE
-            isSelectionRectVisible = true
-            updateDimOverlay()
-            updateStopRecordButtonVisibility()
-            Toast.makeText(this, "Lớp mờ được hiển thị, nhấn đúp để chụp", Toast.LENGTH_SHORT).show()
         }
+        dimOverlay?.visibility = View.VISIBLE
+        isSelectionRectVisible = true
+        updateDimOverlay()
+        updateStopRecordButtonVisibility()
+        Log.d(TAG, "Dim overlay shown with capture ready")
+        Toast.makeText(this, "Lớp mờ được hiển thị, nhấn đúp để chụp", Toast.LENGTH_SHORT).show()
     }
 
     private fun hideDimOverlay() {
@@ -1419,13 +1484,14 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     Log.d(TAG, "Deleted old capture file: ${file.absolutePath}")
                 }
             }
-            getExternalFilesDir(null)?.listFiles { file -> file.name.startsWith("selected_area_debug_") }?.forEach { file ->
-                if (!messages.any { it.imagePath == file.absolutePath }) {
-                    if (file.delete()) {
-                        Log.d(TAG, "Deleted unused debug file: ${file.absolutePath}")
+            getExternalFilesDir(null)?.listFiles { file -> file.name.startsWith("selected_area_debug_") }
+                ?.forEach { file ->
+                    if (!messages.any { it.imagePath == file.absolutePath }) {
+                        if (file.delete()) {
+                            Log.d(TAG, "Deleted unused debug file: ${file.absolutePath}")
+                        }
                     }
                 }
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing old capture files", e)
         }
@@ -1468,6 +1534,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
             virtualDisplay?.release()
             imageReader?.close()
+            mediaProjectionCallback?.let {
+                mediaProjection?.unregisterCallback(it)
+                mediaProjectionCallback = null
+            }
             mediaProjection?.stop()
             virtualDisplay = null
             imageReader = null
