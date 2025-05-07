@@ -209,9 +209,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             ).show()
         }
     }
-
+    @RequiresApi(Build.VERSION_CODES.Q)
     private val screenCaptureReceiver = object : BroadcastReceiver() {
-        @RequiresApi(Build.VERSION_CODES.O)
         override fun onReceive(context: Context?, intent: Intent?) {
             Log.d(TAG, "Broadcast received with action: ${intent?.action}")
             if (intent?.action == "SCREEN_CAPTURE_PERMISSION") {
@@ -273,7 +272,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    @RequiresApi(Build.VERSION_CODES.O)
+    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
@@ -984,7 +983,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun setupBubbleButton() {
         try {
             val bubbleComposeView = ComposeView(this).apply {
@@ -1035,6 +1034,31 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                             if (!isLongPress) {
                                 Log.d(TAG, "Long press triggered")
                                 isLongPress = true
+                                val screenWidth = getFullScreenMetrics().first.toFloat()
+                                val screenHeight = getFullScreenMetrics().second.toFloat()
+
+                                // Lấy kích thước bubble
+                                val bubbleSize = (48 * resources.displayMetrics.density).toFloat()
+
+                                // Tính toán tọa độ tuyệt đối của bubble từ cạnh trái
+                                // Vì gravity là TOP|END, params.x là khoảng cách từ cạnh phải
+                                val bubbleX = screenWidth - params.x - bubbleSize
+                                val bubbleY = params.y.toFloat()
+
+                                // Đặt kích thước khung chữ nhật (gấp đôi kích thước bubble)
+                                selectionRectWidth = bubbleSize * 2f
+                                selectionRectHeight = bubbleSize * 2f
+
+                                // Tính toán vị trí để bubble là tâm
+                                selectionRectX = bubbleX + bubbleSize / 2f - selectionRectWidth / 2f
+                                selectionRectY = bubbleY + bubbleSize / 2f - selectionRectHeight / 2f
+
+                                // Đảm bảo khung chữ nhật không vượt ra ngoài màn hình
+                                selectionRectX = selectionRectX.coerceIn(0f, screenWidth - selectionRectWidth)
+                                selectionRectY = selectionRectY.coerceIn(statusBarHeight.toFloat(), screenHeight - selectionRectHeight)
+
+                                Log.d(TAG, "Bubble position: x=$bubbleX, y=$bubbleY")
+                                Log.d(TAG, "Selection rect: x=$selectionRectX, y=$selectionRectY, width=$selectionRectWidth, height=$selectionRectHeight")
                                 showDimOverlay()
                                 bubbleComposeView.setContent {
                                     MaterialTheme {
@@ -1497,6 +1521,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onDestroy() {
         super.onDestroy()
         try {
