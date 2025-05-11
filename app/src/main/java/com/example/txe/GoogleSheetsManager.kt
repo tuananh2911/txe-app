@@ -187,7 +187,7 @@ class GoogleSheetsManager private constructor(private val context: Context) {
             Log.d(TAG, "Raw values from sheet: $values")
             
             val expanders = values.mapNotNull { row ->
-                if (row.size >= 2) {
+                if (row.size == 2) {
                     // Column A is shortcut, Column B is value
                     val shortcut = row[0].toString().trim()
                     val value = row[1].toString().trim()
