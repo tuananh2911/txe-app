@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Outline
@@ -75,6 +76,7 @@ import java.util.UUID
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.core.view.isVisible
+import androidx.core.graphics.createBitmap
 
 class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private var selectionRectParams: WindowManager.LayoutParams? = null
@@ -135,6 +137,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     private var lastBubblePosition: Pair<Int, Int>? = null
     private var mediaProjectionCallback: MediaProjection.Callback? = null
     private var isPendingCapture = false // Biến để theo dõi trạng thái chờ chụp
+    private var displayListener: DisplayManager.DisplayListener? = null
 
     companion object {
         private const val TAG = "FloatingWindowService"
@@ -320,9 +323,104 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
             val intent = Intent(this, CommandService::class.java)
             bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+            val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            displayListener = object : DisplayManager.DisplayListener {
+                override fun onDisplayAdded(displayId: Int) {}
+                override fun onDisplayRemoved(displayId: Int) {}
+                override fun onDisplayChanged(displayId: Int) {
+                    Log.d(TAG, "Display changed: displayId=$displayId, orientation=${resources.configuration.orientation}")
+                    updateScreenMetrics()
+                }
+            }
+            displayManager.registerDisplayListener(displayListener!!, Handler(Looper.getMainLooper()))
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             stopSelf()
+        }
+    }
+
+    private var lastOrientation: Int = Configuration.ORIENTATION_UNDEFINED
+
+    private fun updateScreenMetrics() {
+        val configuration = resources.configuration
+        val currentOrientation = configuration.orientation
+        if (currentOrientation != lastOrientation) {
+            Log.d(TAG, "Orientation changed: $currentOrientation")
+            lastOrientation = currentOrientation
+
+            val (screenWidth, screenHeight) = getFullScreenMetrics()
+            Log.d(TAG, "New screen metrics: width=$screenWidth, height=$screenHeight")
+
+            // Cập nhật kích thước bitmap và canvas của dim overlay
+            overlayBitmap?.recycle()
+            overlayBitmap = createBitmap(screenWidth, screenHeight)
+            overlayCanvas = Canvas(overlayBitmap!!)
+
+            // Cập nhật lại kích thước và vị trí của selection rectangle
+            selectionRectWidth = minOf(selectionRectWidth, screenWidth.toFloat())
+            selectionRectHeight = minOf(selectionRectHeight, screenHeight.toFloat())
+            selectionRectX = (screenWidth - selectionRectWidth) / 2
+            selectionRectY = (screenHeight - selectionRectHeight) / 2 + statusBarHeight
+            Log.d(TAG, "Updated selection rect: x=$selectionRectX, y=$selectionRectY, width=$selectionRectWidth, height=$selectionRectHeight")
+
+            // Cập nhật layout params của dim overlay
+            dimOverlayParams?.width = screenWidth
+            dimOverlayParams?.height = screenHeight
+            dimOverlay?.let { view ->
+                try {
+                    windowManager.updateViewLayout(view, dimOverlayParams)
+                    Log.d(TAG, "Updated dimOverlay layout params: width=$screenWidth, height=$screenHeight")
+                    if (view.visibility == View.VISIBLE) {
+                        updateDimOverlay() // Vẽ lại ngay lập tức nếu đang hiển thị
+                        view.invalidate() // Yêu cầu vẽ lại giao diện
+                        view.requestLayout() // Yêu cầu cập nhật bố cục
+                    } else {
+
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating dimOverlay layout params", e)
+                }
+            } ?: Log.w(TAG, "dimOverlay is null, cannot update layout params")
+
+            try {
+                if (::bubbleButton.isInitialized && bubbleButton.isAttachedToWindow) {
+                    val bubbleParams = bubbleButton.layoutParams as? WindowManager.LayoutParams
+                    if (bubbleParams != null) {
+                        val size = (48 * resources.displayMetrics.density).toInt()
+                        val maxX = screenWidth - size - 16
+                        val maxY = screenHeight - size - statusBarHeight
+                        lastBubblePosition?.let { (savedX, savedY) ->
+                            bubbleParams.x = minOf(maxX, maxOf(16, savedX))
+
+                            bubbleParams.y = minOf(maxY, maxOf(statusBarHeight, savedY))
+                            Log.d(TAG, "Adjusted bubble position: x=${bubbleParams.x}, y=${bubbleParams.y}")
+                            windowManager.updateViewLayout(bubbleButton, bubbleParams)
+
+                            stopRecordParams?.let { stopParams ->
+                                stopParams.x = bubbleParams.x + size + 32
+                                stopParams.y = bubbleParams.y
+                                stopRecordButton?.let { stopButton ->
+                                    if (stopButton.isAttachedToWindow) {
+                                        windowManager.updateViewLayout(stopButton, stopParams)
+                                    } else {
+                                        Log.w(TAG, "stopRecordButton not attached to window, skipping update")
+                                    }
+                                } ?: Log.w(TAG, "stopRecordButton is null")
+                            }
+                        } ?: Log.w(TAG, "lastBubblePosition is null, skipping bubble position adjustment")
+                    } else {
+                        Log.w(TAG, "bubbleParams is null, cannot adjust bubble position")
+                    }
+                } else {
+                    Log.w(TAG, "bubbleButton not initialized or not attached to window, skipping position adjustment")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error adjusting bubble position", e)
+            }
+            updateDimOverlay()
+            Log.d(TAG, "Updated screen metrics: width=$screenWidth, height=$screenHeight")
+        } else {
+            Log.d(TAG, "No orientation change: orientation=$currentOrientation")
         }
     }
 
@@ -605,6 +703,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     @RequiresApi(Build.VERSION_CODES.O)
     private fun setupDimOverlay() {
         try {
+            updateScreenMetrics()
             val (screenWidth, screenHeight) = getFullScreenMetrics()
             if (screenWidth <= 0 || screenHeight <= 0) {
                 Log.e(TAG, "Kích thước màn hình không hợp lệ")
@@ -653,10 +752,10 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             }
 
             dimOverlay?.setOnTouchListener { _, event ->
-                val cornerSize = 70f
+                val (screenWidth, screenHeight) = getFullScreenMetrics()
                 val screenWidthFloat = screenWidth.toFloat()
                 val screenHeightFloat = screenHeight.toFloat()
-
+                val cornerSize = 70f
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         initialTouchXForRect = event.rawX
@@ -805,6 +904,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         if (mediaProjection != null && virtualDisplay == null) {
             setupScreenCapture()
         }
+        updateScreenMetrics()
         dimOverlay?.visibility = View.VISIBLE
         isSelectionRectVisible = true
         updateDimOverlay()
@@ -1016,6 +1116,14 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                 y = 300
             }
 
+            // Lấy chiều cao màn hình
+            val (screenWidth, screenHeight) = getFullScreenMetrics()
+            // Khoảng cách tối thiểu từ đáy màn hình (16dp)
+            val bottomMargin = (16 * resources.displayMetrics.density).toInt()
+            // Giới hạn tọa độ y
+            val minY = statusBarHeight
+            val maxY = screenHeight - size - bottomMargin
+
             bubbleComposeView.setOnTouchListener { view, event ->
                 Log.d(
                     TAG,
@@ -1037,23 +1145,14 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                                 val screenWidth = getFullScreenMetrics().first.toFloat()
                                 val screenHeight = getFullScreenMetrics().second.toFloat()
 
-                                // Lấy kích thước bubble
                                 val bubbleSize = (48 * resources.displayMetrics.density).toFloat()
-
-                                // Tính toán tọa độ tuyệt đối của bubble từ cạnh trái
-                                // Vì gravity là TOP|END, params.x là khoảng cách từ cạnh phải
                                 val bubbleX = screenWidth - params.x - bubbleSize
                                 val bubbleY = params.y.toFloat()
 
-                                // Đặt kích thước khung chữ nhật (gấp đôi kích thước bubble)
                                 selectionRectWidth = bubbleSize * 2f
                                 selectionRectHeight = bubbleSize * 2f
-
-                                // Tính toán vị trí để bubble là tâm
                                 selectionRectX = bubbleX + bubbleSize / 2f - selectionRectWidth / 2f
                                 selectionRectY = bubbleY + bubbleSize / 2f - selectionRectHeight / 2f
-
-                                // Đảm bảo khung chữ nhật không vượt ra ngoài màn hình
                                 selectionRectX = selectionRectX.coerceIn(0f, screenWidth - selectionRectWidth)
                                 selectionRectY = selectionRectY.coerceIn(statusBarHeight.toFloat(), screenHeight - selectionRectHeight)
 
@@ -1092,7 +1191,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
 
                         if (isDragging) {
                             params.x = (initialX - deltaX).toInt()
-                            params.y = (initialY + deltaY).toInt()
+                            // Giới hạn params.y trong [minY, maxY]
+                            params.y = (initialY + deltaY).toInt().coerceIn(minY, maxY)
                             windowManager.updateViewLayout(view, params)
                             Log.d(TAG, "ACTION_MOVE: x=${params.x}, y=${params.y}")
 
@@ -1137,9 +1237,11 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     MotionEvent.ACTION_UP -> {
                         longPressHandler?.removeCallbacksAndMessages(null)
                         if (isDragging) {
-                            val screenWidth = getFullScreenMetrics().first
+                            // Đảm bảo params.x nằm trong giới hạn trái/phải
                             params.x =
                                 if (params.x > screenWidth / 2 - params.width / 2) screenWidth - params.width - 16 else 16
+                            // Giới hạn params.y trong [minY, maxY]
+                            params.y = params.y.coerceIn(minY, maxY)
                             windowManager.updateViewLayout(view, params)
 
                             stopRecordParams?.let { stopParams ->
@@ -1574,6 +1676,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             clearOldCaptureFiles()
 
             Log.d(TAG, "Service destroyed")
+            val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            displayListener?.let { displayManager.unregisterDisplayListener(it) }
         } catch (e: Exception) {
             Log.e(TAG, "Error in onDestroy", e)
         }
